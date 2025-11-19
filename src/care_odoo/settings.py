@@ -106,8 +106,6 @@ DEFAULTS = {
     "CARE_ODOO_DATABASE": "",
     "CARE_ODOO_USERNAME": "",
     "CARE_ODOO_PASSWORD": "",
-    "CARE_ODOO_TIMEOUT": "",
-    "CARE_ODOO_VERIFY_SSL": True,
 }
 
 # Required settings for production
