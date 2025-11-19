@@ -19,7 +19,6 @@ https://github.com/ohcnetwork/care/blob/develop/plug_config.py
 To install Care Odoo, you can add the plugin config in care/plug_config.py as follows:
 
 ```python
-...
 
 odoo_plug = Plug(
     name="care_odoo",
@@ -35,19 +34,23 @@ odoo_plug = Plug(
         },
 )
 plugs = [odoo_plug]
-...
 ```
 
 ## Configuration
 
 The following configuration variables are available for Care Odoo:
 
-**CARE_ODOO_HOST**: The hostname or IP address of the Odoo instance.
-**CARE_ODOO_PORT**: The port number for the Odoo instance (default: 8069).
-**CARE_ODOO_PROTOCOL**: The protocol to use for connecting to Odoo (http or https).
-**CARE_ODOO_DATABASE**: The database name for the Odoo instance.
-**CARE_ODOO_USERNAME**: The username for Odoo authentication.
-**CARE_ODOO_PASSWORD**: The password for Odoo authentication.
+* **CARE_ODOO_HOST**: The hostname or IP address of the Odoo instance.
+
+* **CARE_ODOO_PORT**: The port number for the Odoo instance (default: 8069).
+
+* **CARE_ODOO_PROTOCOL**: The protocol to use for connecting to Odoo (http or https).
+
+* **CARE_ODOO_DATABASE**: The database name for the Odoo instance.
+
+* **CARE_ODOO_USERNAME**: The username for Odoo authentication.
+
+* **CARE_ODOO_PASSWORD**: The password for Odoo authentication.
 
 
 The plugin will try to find the configuration from the settings first and then from environment variables.
