@@ -49,7 +49,6 @@ class OdooProductProductResource:
             Odoo product ID if successful, None otherwise
         """
         base_price = self.get_charge_item_base_price(charge_item_definition)
-        mrp = self.get_charge_item_mrp(charge_item_definition)
         purchase_price = self.get_charge_item_purchase_price(charge_item_definition)
 
         taxes = []
@@ -64,7 +63,7 @@ class OdooProductProductResource:
             product_name=f"CARE: {charge_item_definition.title}",
             x_care_id=str(charge_item_definition.external_id),
             mrp=float(base_price or "0"),
-            cost=float(purchase_price or mrp or "0"),
+            cost=float(purchase_price or "0"),
             category=CategoryData(
                 category_name=charge_item_definition.category.title,
                 parent_x_care_id=str(charge_item_definition.category.parent.external_id)

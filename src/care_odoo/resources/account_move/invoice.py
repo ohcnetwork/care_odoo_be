@@ -147,7 +147,7 @@ class OdooInvoiceResource:
                     product_name=f"CARE: {charge_item.charge_item_definition.title}",
                     x_care_id=str(charge_item.charge_item_definition.external_id),
                     mrp=float(base_price or "0"),
-                    cost=float(purchase_price or base_price or "0"),
+                    cost=float(purchase_price or "0"),
                     category=CategoryData(
                         category_name=charge_item.charge_item_definition.category.title,
                         parent_x_care_id=str(charge_item.charge_item_definition.category.parent.external_id)
@@ -203,6 +203,9 @@ class OdooInvoiceResource:
         logger.info("Odoo Invoice Data: %s", data)
 
         response = OdooConnector.call_api("api/account/move", data)
+        invoice_number = response.get("invoice", {}).get("name")
+        invoice.number = invoice_number
+        invoice.save()
         return response["invoice"]["id"]
 
     def sync_invoice_return_to_odoo_api(self, invoice_id: str) -> int | None:

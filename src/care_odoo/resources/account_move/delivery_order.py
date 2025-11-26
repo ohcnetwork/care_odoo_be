@@ -123,7 +123,7 @@ class OdooDeliveryOrderResource:
                     product_name=f"CARE: {product.charge_item_definition.title}",
                     x_care_id=str(product.charge_item_definition.external_id),
                     mrp=float(base_price or "0"),
-                    cost=float(purchase_price or base_price or "0"),
+                    cost=float(purchase_price or "0"),
                     category=category_data,
                     status=product.charge_item_definition.status,
                     hsn=product.product_knowledge.alternate_identifier
