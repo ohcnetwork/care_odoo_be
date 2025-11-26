@@ -203,9 +203,9 @@ class OdooInvoiceResource:
         logger.info("Odoo Invoice Data: %s", data)
 
         response = OdooConnector.call_api("api/account/move", data)
-        # invoice_number = response.get("invoice", {}).get("name")
-        # invoice.number = invoice_number
-        # invoice.save()
+        invoice_number = response.get("invoice", {}).get("name")
+        invoice.number = invoice_number
+        invoice.save(update_fields=["number"])
         return response["invoice"]["id"]
 
     def sync_invoice_return_to_odoo_api(self, invoice_id: str) -> int | None:

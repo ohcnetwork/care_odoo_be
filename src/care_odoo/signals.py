@@ -43,6 +43,10 @@ def sync_user_to_odoo(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=Invoice)
 def save_fields_before_update(sender, instance, raw, using, update_fields, **kwargs):
+    # Skip sync if only 'number' field is being updated
+    if update_fields and update_fields == {"number"}:
+        return
+
     if instance.status in [
         InvoiceStatusOptions.issued.value,
     ]:
