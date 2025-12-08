@@ -11,6 +11,7 @@ class UserType(str, Enum):
 
 
 class UserData(BaseModel):
+    x_care_id: str
     name: str
     login: str
     email: str

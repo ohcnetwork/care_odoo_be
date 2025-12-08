@@ -33,6 +33,7 @@ class OdooUserResource:
 
         # Create user data
         data = UserData(
+            x_care_id=str(user.external_id),
             name=self.get_full_name(user),
             login=user.username,
             email=user.email,
