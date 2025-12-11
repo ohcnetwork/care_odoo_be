@@ -39,7 +39,7 @@ class OdooPaymentResource:
             x_care_id=str(payment.account.patient.external_id),
             partner_type=PartnerType.person,
             phone=payment.account.patient.phone_number,
-            state=payment.facility.state or "kerala",
+            state="kerala",
             email="",
             agent=False,
         )

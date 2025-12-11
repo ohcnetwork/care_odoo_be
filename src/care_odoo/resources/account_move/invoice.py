@@ -129,7 +129,7 @@ class OdooInvoiceResource:
             x_care_id=str(invoice.patient.external_id),
             partner_type=PartnerType.person,
             phone=invoice.patient.phone_number,
-            state=invoice.facility.state or "kerala",
+            state="kerala",
             email="",
             agent=False,
         )

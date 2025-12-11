@@ -71,7 +71,7 @@ class OdooDeliveryOrderResource:
             x_care_id=str(delivery_order.supplier.external_id),
             partner_type=PartnerType.company,
             phone=supplier_metadata.get("phone", ""),
-            state=supplier_metadata.get("state", "kerala"),
+            state="kerala",
             email=supplier_metadata.get("email", ""),
             agent=False,
         )

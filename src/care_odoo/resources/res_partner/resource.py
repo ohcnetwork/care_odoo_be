@@ -18,7 +18,7 @@ class OdooPartnerResource:
         metadata = organization.metadata or {}
         email = metadata.get("email", "")
         phone = metadata.get("phone", "")
-        state = metadata.get("state", "kerala")
+        state = "kerala"
 
         data = PartnerData(
             name=organization.name,
