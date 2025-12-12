@@ -62,7 +62,7 @@ class OdooDeliveryOrderResource:
         )
 
         for supply_delivery in supply_deliveries:
-            if supply_delivery.supplied_item:
+            if supply_delivery.supplied_item and supply_delivery.supplied_item.charge_item_definition:
                 product = supply_delivery.supplied_item
                 charge_item_def = product.charge_item_definition
                 base_price = get_base_price_from_definition(charge_item_def)
@@ -116,6 +116,10 @@ class OdooDeliveryOrderResource:
                 invoice_items.append(item)
 
         logger.info("Delivery Order Items: %s", invoice_items)
+
+        if not invoice_items:
+            logger.info("No invoice items found for delivery order %s", delivery_order_id)
+            return None
 
         # Prepare final data using our spec with vendor bill type
         data = AccountMoveApiRequest(
