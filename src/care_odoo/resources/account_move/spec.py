@@ -52,6 +52,7 @@ class AccountMoveApiRequest(BaseModel):
     reason: str
 
 
+# TODO: Remove unused fields after Connector is updated
 class AccountMoveReturnApiRequest(BaseModel):
     x_care_id: str
     bill_type: BillType | None = None

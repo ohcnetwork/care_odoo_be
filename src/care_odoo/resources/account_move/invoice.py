@@ -148,4 +148,4 @@ class OdooInvoiceResource:
 
         logger.info("Odoo Invoice Return Data: %s", data)
         response = OdooConnector.call_api("api/account/move/return", data)
-        return response["reverse_invoice"]["id"]
+        return response["invoice"]["id"]
