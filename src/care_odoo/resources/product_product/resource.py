@@ -1,4 +1,5 @@
 from care.emr.models.product import Product
+
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.product_category.spec import CategoryData
 from care_odoo.resources.product_product.spec import ProductData, TaxData
@@ -32,7 +33,7 @@ class OdooProductProductResource:
                 )
             )
         data = ProductData(
-            product_name=f"CARE: {charge_item_definition.title}",
+            product_name=f"{charge_item_definition.title}",
             x_care_id=str(charge_item_definition.external_id),
             mrp=float(base_price),
             cost=float(purchase_price),

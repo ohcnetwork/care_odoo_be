@@ -4,6 +4,7 @@ from care.emr.models.supply_delivery import DeliveryOrder, SupplyDelivery
 from care.emr.resources.inventory.supply_delivery.spec import (
     SupplyDeliveryStatusOptions,
 )
+
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move.spec import (
     AccountMoveApiRequest,
@@ -94,7 +95,7 @@ class OdooDeliveryOrderResource:
                     )
 
                 product_data = ProductData(
-                    product_name=f"CARE: {product.charge_item_definition.title}",
+                    product_name=f"{product.charge_item_definition.title}",
                     x_care_id=str(product.charge_item_definition.external_id),
                     mrp=float(base_price),
                     cost=float(purchase_price),

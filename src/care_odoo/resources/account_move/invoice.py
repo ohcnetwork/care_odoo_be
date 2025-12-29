@@ -1,13 +1,16 @@
 import logging
 
-from care_odoo.apps import PLUGIN_NAME
-from django.conf import settings
 from care.emr.models.charge_item import ChargeItem
 from care.emr.models.invoice import Invoice
 from care.emr.models.medication_dispense import MedicationDispense
 from care.emr.models.scheduling.booking import TokenBooking
 from care.emr.models.service_request import ServiceRequest
+from care.emr.resources.base import model_from_cache
 from care.emr.resources.charge_item.spec import ChargeItemResourceOptions
+from care.emr.resources.tag.config_spec import TagConfigReadSpec
+from django.conf import settings
+
+from care_odoo.apps import PLUGIN_NAME
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move.spec import (
     AccountMoveApiRequest,
@@ -24,8 +27,6 @@ from care_odoo.resources.utils import (
     get_purchase_price_from_charge_item,
     get_taxes_from_definition,
 )
-from care.emr.resources.base import model_from_cache
-from care.emr.resources.tag.config_spec import TagConfigReadSpec
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class OdooInvoiceResource:
                         )
                     )
                 product_data = ProductData(
-                    product_name=f"CARE: {charge_item.charge_item_definition.title}",
+                    product_name=f"{charge_item.charge_item_definition.title}",
                     x_care_id=str(charge_item.charge_item_definition.external_id),
                     mrp=float(base_price),
                     cost=float(purchase_price),
