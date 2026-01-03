@@ -126,7 +126,7 @@ class OdooInvoiceResource:
                 invoice_items.append(item)
         patient_official_identifier_id = {settings.PLUGIN_CONFIGS["care_odoo"]["CARE_PATIENT_OFFICIAL_IDENTIFIER"]}
         if patient_official_identifier_id:
-            ssmm_id_value = next(
+            x_identifier = next(
                 (
                     identifier["value"]
                     for identifier in invoice.patient.instance_identifiers
@@ -149,7 +149,7 @@ class OdooInvoiceResource:
             if invoice.account.meta and PLUGIN_NAME in invoice.account.meta
             else None,
             created_by=invoice.updated_by.full_name if invoice.updated_by else None,
-            ssmm_id=ssmm_id_value,
+            x_identifier=x_identifier,
             insurance_tag=account_tags,
         ).model_dump()
         logger.info("Odoo Invoice Data: %s", data)
