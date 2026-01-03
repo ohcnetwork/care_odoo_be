@@ -61,6 +61,7 @@ class OdooPaymentResource:
             x_care_id=str(payment.external_id),
             amount=float(payment.amount),
             journal_input=PAYMENT_METHOD_TO_JOURNAL_TYPE.get(payment.method, JournalType.bank),
+            bank_reference=payment.reference_number,
             payment_date=payment.payment_datetime.strftime("%Y-%m-%d"),
             payment_mode=PaymentMode.send if payment.is_credit_note else PaymentMode.receive,
             partner_data=partner_data,

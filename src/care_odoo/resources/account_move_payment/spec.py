@@ -37,6 +37,7 @@ class AccountMovePaymentApiRequest(BaseModel):
     partner_data: PartnerData
     customer_type: CustomerType
     counter_data: BillCounterData
+    bank_reference: str | None = None
 
 
 class AccountPaymentCancelApiRequest(BaseModel):
