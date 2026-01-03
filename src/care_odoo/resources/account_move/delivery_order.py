@@ -110,6 +110,7 @@ class OdooDeliveryOrderResource:
                 item = InvoiceItem(
                     product_data=product_data,
                     quantity=str(supply_delivery.supplied_item_quantity or 0),
+                    free_quantity=str((supply_delivery.extensions or {}).get("free_quantity", 0)),
                     sale_price=str(purchase_price),
                     x_care_id=str(supply_delivery.external_id),
                 )
