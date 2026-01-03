@@ -32,7 +32,7 @@ class InvoiceItem(BaseModel):
     product_data: ProductData
     quantity: str = Field(default="1.0")
     sale_price: str = Field(default="0.0")
-    free_quantity: str = Field(default="0.0")
+    free_qty: str = Field(default="0.0")
     x_care_id: str
     agent_id: str | None = None
     discounts: list[InvoiceDiscounts] | None = None
