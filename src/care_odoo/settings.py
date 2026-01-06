@@ -67,9 +67,7 @@ class PluginSettings:  # pragma: no cover
     @property
     def user_settings(self) -> dict:
         if not hasattr(self, "_user_settings"):
-            self._user_settings = getattr(settings, "PLUGIN_CONFIGS", {}).get(
-                self.plugin_name, {}
-            )
+            self._user_settings = getattr(settings, "PLUGIN_CONFIGS", {}).get(self.plugin_name, {})
 
         return self._user_settings
 
@@ -106,6 +104,7 @@ DEFAULTS = {
     "CARE_ODOO_DATABASE": "",
     "CARE_ODOO_USERNAME": "",
     "CARE_ODOO_PASSWORD": "",
+    "CARE_ODOO_ACCOUNT_EXTENSION_NAME": "",
 }
 
 # Required settings for production
@@ -114,12 +113,11 @@ REQUIRED_SETTINGS = {
     "CARE_ODOO_DATABASE",
     "CARE_ODOO_USERNAME",
     "CARE_ODOO_PASSWORD",
+    "CARE_ODOO_ACCOUNT_EXTENSION_NAME",
 }
 
 
-plugin_settings = PluginSettings(
-    PLUGIN_NAME, defaults=DEFAULTS, required_settings=REQUIRED_SETTINGS
-)
+plugin_settings = PluginSettings(PLUGIN_NAME, defaults=DEFAULTS, required_settings=REQUIRED_SETTINGS)
 
 
 @receiver(setting_changed)

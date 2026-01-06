@@ -146,8 +146,12 @@ class OdooInvoiceResource:
             bill_type=BillType.customer,
             due_date=invoice.created_date.strftime("%d-%m-%Y"),
             reason="",
-            payment_method_id=invoice.account.meta[PLUGIN_NAME].get("odoo_payment_method_id")
-            if invoice.account.meta and PLUGIN_NAME in invoice.account.meta
+            payment_method_id=invoice.account.extensions.get(
+                settings.PLUGIN_CONFIGS["care_odoo"]["CARE_ODOO_ACCOUNT_EXTENSION_NAME"]
+            )
+            if invoice.account.extensions
+            and settings.PLUGIN_CONFIGS["care_odoo"]["CARE_ODOO_ACCOUNT_EXTENSION_NAME"]
+            in invoice.account.extensions.keys()
             else None,
             x_created_by=invoice.updated_by.full_name if invoice.updated_by else None,
             x_identifier=x_identifier,
