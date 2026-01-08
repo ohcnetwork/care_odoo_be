@@ -1,19 +1,21 @@
 import logging
 
-from care.emr.models.account import Account
-from care_odoo.apps import PLUGIN_NAME
-from care_odoo.resources.payment_method.spec import PaymentMethodData, SetOdooPaymentMethodRequest
-from rest_framework import status, viewsets
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
+from care.emr.models.account import Account
+
+from care_odoo.apps import PLUGIN_NAME
 from care_odoo.connector.connector import OdooConnector
+from care_odoo.resources.base import CareOdooBaseViewSet
+from care_odoo.resources.payment_method.spec import PaymentMethodData, SetOdooPaymentMethodRequest
 
 logger = logging.getLogger(__name__)
 
 
-class AccountViewSet(viewsets.ViewSet):
+class AccountViewSet(CareOdooBaseViewSet):
     """
     ViewSet for managing account integrations with Odoo.
     """

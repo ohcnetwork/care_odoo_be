@@ -32,21 +32,21 @@ class OdooConnector:
         # local
         # url = f"http://host.docker.internal:8069/{endpoint}"
 
-        url = f"{settings.PLUGIN_CONFIGS['care_odoo']['CARE_ODOO_PROTOCOL']}://{settings.PLUGIN_CONFIGS['care_odoo']['CARE_ODOO_HOST']}"
-        if settings.PLUGIN_CONFIGS["care_odoo"]["CARE_ODOO_PORT"]:
-            url += f":{settings.PLUGIN_CONFIGS['care_odoo']['CARE_ODOO_PORT']}"
+        url = f"{settings.CARE_ODOO_PROTOCOL}://{settings.CARE_ODOO_HOST}"
+        if settings.CARE_ODOO_PORT:
+            url += f":{settings.CARE_ODOO_PORT}"
         url += f"/{endpoint}"
         headers = {
             "Authorization": f"Basic {auth}",
             "Content-Type": "application/json",
-            "db": settings.PLUGIN_CONFIGS["care_odoo"]["CARE_ODOO_DATABASE"],
+            "db": settings.CARE_ODOO_DATABASE,
         }
 
         # Log curl equivalent for debugging
         try:
             headers_str = " ".join([f"-H '{k}: {v}'" for k, v in headers.items()])
             data_str = f"-d '{json.dumps(data)}'" if data else ""
-            curl_command = f"curl -X POST {headers_str} {data_str} '{url}'"
+            curl_command = f"curl -X {method} {headers_str} {data_str} '{url}'"
             logger.info("Equivalent curl command:\n%s", curl_command)
         except Exception as e:
             logger.info(e)
