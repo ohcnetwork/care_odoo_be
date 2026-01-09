@@ -2,11 +2,11 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from care_odoo.connector.connector import OdooConnector
-from care_odoo.resources.base import CareOdooBaseViewSet
+from care.emr.api.viewsets.base import EMRBaseViewSet
 from care_odoo.resources.payment_method.spec import PaymentMethodData
 
 
-class PaymentMethodViewSet(CareOdooBaseViewSet):
+class PaymentMethodViewSet(EMRBaseViewSet):
     def _build_query_params(self, request):
         """Build query parameters for Odoo API from request."""
         query_params = {}

@@ -12,8 +12,7 @@ from care_odoo.resources.payment_method.viewset import PaymentMethodViewSet
 def ping(request):
     return JsonResponse({"status": "OK"})
 
-# TODO: @amjithtitus09 we need to add /v1/ in front of all the urls to be in line with the rest of the api.
-# Main router for non-facility-scoped endpoints
+
 router = DefaultRouter()
 router.register("payment-method", PaymentMethodViewSet, basename="payment-method")
 router.register("account", AccountViewSet, basename="account")

@@ -11,7 +11,7 @@ from care.security.authorization import AuthorizationController
 from care.utils.shortcuts import get_object_or_404
 
 from care_odoo.connector.connector import OdooConnector
-from care_odoo.resources.base import CareOdooBaseViewSet
+from care.emr.api.viewsets.base import EMRBaseViewSet
 from care_odoo.resources.cash_session.spec import (
     CloseSessionRequest,
     CounterData,
@@ -22,7 +22,7 @@ from care_odoo.resources.cash_session.spec import (
 logger = logging.getLogger(__name__)
 
 
-class CashSessionViewSet(CareOdooBaseViewSet):
+class CashSessionViewSet(EMRBaseViewSet):
     """
     ViewSet for managing cash sessions with Odoo.
 
@@ -40,22 +40,16 @@ class CashSessionViewSet(CareOdooBaseViewSet):
 
     def get_facility_obj(self) -> Facility:
         """Get facility from URL kwargs."""
-        return get_object_or_404(
-            Facility, external_id=self.kwargs["facility_external_id"]
-        )
+        return get_object_or_404(Facility, external_id=self.kwargs["facility_external_id"])
 
     def get_location_obj(self, location_external_id: str) -> FacilityLocation:
         """Get location by external ID within the facility."""
         facility = self.get_facility_obj()
         try:
-            location = FacilityLocation.objects.get(
-                external_id=location_external_id, facility=facility
-            )
+            location = FacilityLocation.objects.get(external_id=location_external_id, facility=facility)
             return location
         except FacilityLocation.DoesNotExist:
-            raise NotFound(
-                f"Location {location_external_id} not found in this facility"
-            )
+            raise NotFound(f"Location {location_external_id} not found in this facility")
 
     def validate_location_access(self, location_external_id: str) -> FacilityLocation:
         """
@@ -71,12 +65,8 @@ class CashSessionViewSet(CareOdooBaseViewSet):
         facility = self.get_facility_obj()
         location = self.get_location_obj(location_external_id)
 
-        if not AuthorizationController.call(
-            "can_list_facility_location_obj", self.request.user, facility, location
-        ):
-            raise PermissionDenied(
-                f"You do not have access to location {location.name}"
-            )
+        if not AuthorizationController.call("can_list_facility_location_obj", self.request.user, facility, location):
+            raise PermissionDenied(f"You do not have access to location {location.name}")
 
         return location
 
@@ -126,9 +116,7 @@ class CashSessionViewSet(CareOdooBaseViewSet):
             response = OdooConnector.call_api("api/care/cash/session", data, "POST")
 
             if not response.get("success", False):
-                raise ValidationError(
-                    response.get("message", "Failed to open session in Odoo")
-                )
+                raise ValidationError(response.get("message", "Failed to open session in Odoo"))
 
             return Response(
                 {
@@ -181,14 +169,10 @@ class CashSessionViewSet(CareOdooBaseViewSet):
         )
 
         try:
-            response = OdooConnector.call_api(
-                "api/care/cash/session/close", data, "PUT"
-            )
+            response = OdooConnector.call_api("api/care/cash/session/close", data, "PUT")
 
             if not response.get("success", False):
-                raise ValidationError(
-                    response.get("message", "Failed to close session in Odoo")
-                )
+                raise ValidationError(response.get("message", "Failed to close session in Odoo"))
 
             return Response(
                 {
@@ -235,9 +219,7 @@ class CashSessionViewSet(CareOdooBaseViewSet):
         )
 
         try:
-            response = OdooConnector.call_api(
-                "api/care/cash/session/current", data, "POST"
-            )
+            response = OdooConnector.call_api("api/care/cash/session/current", data, "POST")
 
             session_data = response.get("session")
             if session_data:
@@ -255,9 +237,7 @@ class CashSessionViewSet(CareOdooBaseViewSet):
                 )
         except Exception as e:
             logger.exception("Error getting current cash session: %s", str(e))
-            raise ValidationError(
-                f"Error getting current cash session: {str(e)}"
-            ) from e
+            raise ValidationError(f"Error getting current cash session: {str(e)}") from e
 
     def list(self, request, facility_external_id=None):
         """
@@ -277,19 +257,15 @@ class CashSessionViewSet(CareOdooBaseViewSet):
 
         logger.info("Listing cash sessions for facility %s: %s", facility.name, query_params)
 
-              # Convert query_params to URL parameters
+        # Convert query_params to URL parameters
         url_params = "&".join([f"{key}={value}" for key, value in query_params.items()])
         api_url = f"api/care/cash/session/list?{url_params}"
 
         try:
-            response = OdooConnector.call_api(
-                api_url, {}, "GET"
-            )
+            response = OdooConnector.call_api(api_url, {}, "GET")
 
             sessions = response.get("sessions", [])
-            serialized_sessions = [
-                self._serialize_session(session) for session in sessions
-            ]
+            serialized_sessions = [self._serialize_session(session) for session in sessions]
 
             return Response(
                 {"success": True, "sessions": serialized_sessions},
@@ -311,14 +287,10 @@ class CashSessionViewSet(CareOdooBaseViewSet):
         logger.info("Listing cash counters for facility %s", facility.name)
 
         try:
-            response = OdooConnector.call_api(
-                "api/care/cash/counters", {}, "GET"
-            )
+            response = OdooConnector.call_api("api/care/cash/counters", {}, "GET")
 
             counters = response.get("counters", [])
-            serialized_counters = [
-                self._serialize_counter(counter) for counter in counters
-            ]
+            serialized_counters = [self._serialize_counter(counter) for counter in counters]
 
             return Response(
                 {

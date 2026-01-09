@@ -9,13 +9,13 @@ from care.emr.models.account import Account
 
 from care_odoo.apps import PLUGIN_NAME
 from care_odoo.connector.connector import OdooConnector
-from care_odoo.resources.base import CareOdooBaseViewSet
+from care.emr.api.viewsets.base import EMRBaseViewSet
 from care_odoo.resources.payment_method.spec import PaymentMethodData, SetOdooPaymentMethodRequest
 
 logger = logging.getLogger(__name__)
 
 
-class AccountViewSet(CareOdooBaseViewSet):
+class AccountViewSet(EMRBaseViewSet):
     """
     ViewSet for managing account integrations with Odoo.
     """
