@@ -38,7 +38,7 @@ class OdooUserResource:
             name=self.get_full_name(user),
             login=user.username,
             email=user.email,
-            user_type=UserType.internal,  # Default to internal user
+            user_type=UserType.public,
             phone=user.phone_number,
             state="kerala",  # Default to Kerala
             partner_data=partner_data,
