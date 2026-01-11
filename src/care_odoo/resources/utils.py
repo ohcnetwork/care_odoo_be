@@ -209,6 +209,9 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
 
     Returns:
         List of InvoiceDiscounts if discounts found, None otherwise
+
+    Raises:
+        ValueError: If more than 1 discount is found per item
     """
     if not charge_item or not charge_item.unit_price_components:
         return None
@@ -221,6 +224,9 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
 
     if not unit_discounts:
         return None
+
+    if len(unit_discounts) > 1:
+        raise ValueError(f"More than 1 discount per item is not allowed. Found {len(unit_discounts)} discounts.")
 
     discounts = []
     for unit_discount in unit_discounts:
