@@ -27,12 +27,14 @@ class AcceptTransferRequest(BaseModel):
     """Request to accept a cash transfer."""
 
     counter_x_care_id: str = Field(..., description="Counter Care ID where user is accepting")
+    session_id: str = Field(..., description="User's current session ID to validate against transfer destination")
 
 
 class RejectTransferRequest(BaseModel):
     """Request to reject a cash transfer."""
 
     counter_x_care_id: str = Field(..., description="Counter Care ID where user is rejecting")
+    session_id: str = Field(..., description="User's current session ID to validate against transfer destination")
     reason: str | None = Field(default=None, description="Optional rejection reason")
 
 

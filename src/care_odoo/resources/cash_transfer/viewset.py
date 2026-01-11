@@ -11,7 +11,7 @@ from care.security.authorization import AuthorizationController
 from care.utils.shortcuts import get_object_or_404
 
 from care_odoo.connector.connector import OdooConnector
-from care_odoo.resources.base import CareOdooBaseViewSet
+from care.emr.api.viewsets.base import EMRBaseViewSet
 from care_odoo.resources.cash_transfer.spec import (
     AcceptTransferRequest,
     CancelTransferRequest,
@@ -23,7 +23,7 @@ from care_odoo.resources.cash_transfer.spec import (
 logger = logging.getLogger(__name__)
 
 
-class CashTransferViewSet(CareOdooBaseViewSet):
+class CashTransferViewSet(EMRBaseViewSet):
     """
     ViewSet for managing cash transfers with Odoo.
 
@@ -42,22 +42,16 @@ class CashTransferViewSet(CareOdooBaseViewSet):
 
     def get_facility_obj(self) -> Facility:
         """Get facility from URL kwargs."""
-        return get_object_or_404(
-            Facility, external_id=self.kwargs["facility_external_id"]
-        )
+        return get_object_or_404(Facility, external_id=self.kwargs["facility_external_id"])
 
     def get_location_obj(self, location_external_id: str) -> FacilityLocation:
         """Get location by external ID within the facility."""
         facility = self.get_facility_obj()
         try:
-            location = FacilityLocation.objects.get(
-                external_id=location_external_id, facility=facility
-            )
+            location = FacilityLocation.objects.get(external_id=location_external_id, facility=facility)
             return location
         except FacilityLocation.DoesNotExist:
-            raise NotFound(
-                f"Location {location_external_id} not found in this facility"
-            )
+            raise NotFound(f"Location {location_external_id} not found in this facility")
 
     def validate_location_access(self, location_external_id: str) -> FacilityLocation:
         """
@@ -73,12 +67,8 @@ class CashTransferViewSet(CareOdooBaseViewSet):
         facility = self.get_facility_obj()
         location = self.get_location_obj(location_external_id)
 
-        if not AuthorizationController.call(
-            "can_list_facility_location_obj", self.request.user, facility, location
-        ):
-            raise PermissionDenied(
-                f"You do not have access to location {location.name}"
-            )
+        if not AuthorizationController.call("can_list_facility_location_obj", self.request.user, facility, location):
+            raise PermissionDenied(f"You do not have access to location {location.name}")
 
         return location
 
@@ -91,31 +81,36 @@ class CashTransferViewSet(CareOdooBaseViewSet):
         List cash transfers for the facility with optional filters.
 
         GET /facility/{facility_external_id}/cash-transfer/
-        
+
         Query Parameters:
         - status: Filter by transfer status (pending, accepted, rejected)
         - counter_x_care_id: Filter by counter (shows transfers to/from this counter)
         - from_session_id: Filter by the originating session ID
+        - to_session_id: Filter by the destination session ID
         """
         facility = self.get_facility_obj()
         transfer_status = request.query_params.get("status")
         counter_x_care_id = request.query_params.get("counter_x_care_id")
         from_session_id = request.query_params.get("from_session_id")
+        to_session_id = request.query_params.get("to_session_id")
 
         query_params = {
             "facility_external_id": str(facility.external_id),
         }
-        
+
         if transfer_status:
             query_params["status"] = transfer_status
-            
+
         if counter_x_care_id:
             # Validate user has access to the counter if filtering by it
             location = self.validate_location_access(counter_x_care_id)
             query_params["counter_x_care_id"] = str(location.external_id)
-            
+
         if from_session_id:
             query_params["from_session_id"] = from_session_id
+
+        if to_session_id:
+            query_params["to_session_id"] = to_session_id
 
         # Convert query_params to URL parameters
         url_params = "&".join([f"{key}={value}" for key, value in query_params.items()])
@@ -128,14 +123,10 @@ class CashTransferViewSet(CareOdooBaseViewSet):
         )
 
         try:
-            response = OdooConnector.call_api(
-                api_url, {}, "GET"
-            )
+            response = OdooConnector.call_api(api_url, {}, "GET")
 
             transfers = response.get("transfers", [])
-            serialized_transfers = [
-                self._serialize_transfer(transfer) for transfer in transfers
-            ]
+            serialized_transfers = [self._serialize_transfer(transfer) for transfer in transfers]
 
             return Response(
                 {"success": True, "transfers": serialized_transfers},
@@ -188,9 +179,7 @@ class CashTransferViewSet(CareOdooBaseViewSet):
             response = OdooConnector.call_api("api/care/cash/transfer", data, "POST")
 
             if not response.get("success", False):
-                raise ValidationError(
-                    response.get("message", "Failed to create transfer in Odoo")
-                )
+                raise ValidationError(response.get("message", "Failed to create transfer in Odoo"))
 
             return Response(
                 {
@@ -206,16 +195,17 @@ class CashTransferViewSet(CareOdooBaseViewSet):
             raise ValidationError(f"Error creating cash transfer: {str(e)}") from e
 
     @action(detail=True, methods=["put", "post"], url_path="accept")
-    def accept_transfer(self, request, pk=None, facility_external_id=None):
+    def accept_transfer(self, request, external_id=None, facility_external_id=None):
         """
         Accept an incoming cash transfer.
 
         PUT /facility/{facility_external_id}/cash-transfer/{id}/accept/
         {
-            "counter_x_care_id": "UUID"  # The counter where user is accepting
+            "counter_x_care_id": "UUID",  # The counter where user is accepting
+            "session_id": "ID"  # User's session ID (must match transfer's destination)
         }
         """
-        if not pk:
+        if not external_id:
             raise ValidationError("Transfer ID is required")
 
         try:
@@ -225,34 +215,33 @@ class CashTransferViewSet(CareOdooBaseViewSet):
 
         user = request.user
         facility = self.get_facility_obj()
-        
+
         # Validate user has access to the destination counter
         location = self.validate_location_access(request_data.counter_x_care_id)
 
         # Build payload for Odoo - user info derived from authenticated user
+        # session_id is included so Odoo can validate it matches the transfer's destination
         data = {
             "facility_external_id": str(facility.external_id),
             "counter_x_care_id": str(location.external_id),
+            "session_id": request_data.session_id,
             "resolved_by_ext_id": str(user.external_id),
             "resolved_by_name": user.full_name,
         }
 
         logger.info(
-            "Accepting transfer %s by user %s at facility %s",
-            pk,
+            "Accepting transfer %s by user %s (session %s) at facility %s",
+            external_id,
             user.username,
+            request_data.session_id,
             facility.name,
         )
 
         try:
-            response = OdooConnector.call_api(
-                f"api/care/cash/transfer/{pk}/accept", data, "PUT"
-            )
+            response = OdooConnector.call_api(f"api/care/cash/transfer/{external_id}/accept", data, "PUT")
 
             if not response.get("success", False):
-                raise ValidationError(
-                    response.get("message", "Failed to accept transfer in Odoo")
-                )
+                raise ValidationError(response.get("message", "Failed to accept transfer in Odoo"))
 
             return Response(
                 {
@@ -268,17 +257,18 @@ class CashTransferViewSet(CareOdooBaseViewSet):
             raise ValidationError(f"Error accepting cash transfer: {str(e)}") from e
 
     @action(detail=True, methods=["put", "post"], url_path="reject")
-    def reject_transfer(self, request, pk=None, facility_external_id=None):
+    def reject_transfer(self, request, external_id=None, facility_external_id=None):
         """
         Reject an incoming cash transfer.
 
         PUT /facility/{facility_external_id}/cash-transfer/{id}/reject/
         {
             "counter_x_care_id": "UUID",  # The counter where user is rejecting
+            "session_id": "ID",  # User's session ID (must match transfer's destination)
             "reason": "Amount doesn't match"  # Optional
         }
         """
-        if not pk:
+        if not external_id:
             raise ValidationError("Transfer ID is required")
 
         try:
@@ -288,35 +278,34 @@ class CashTransferViewSet(CareOdooBaseViewSet):
 
         user = request.user
         facility = self.get_facility_obj()
-        
+
         # Validate user has access to the destination counter
         location = self.validate_location_access(request_data.counter_x_care_id)
 
         # Build payload for Odoo - user info derived from authenticated user
+        # session_id is included so Odoo can validate it matches the transfer's destination
         data = {
             "facility_external_id": str(facility.external_id),
             "counter_x_care_id": str(location.external_id),
+            "session_id": request_data.session_id,
             "resolved_by_ext_id": str(user.external_id),
             "resolved_by_name": user.full_name,
             "reason": request_data.reason,
         }
 
         logger.info(
-            "Rejecting transfer %s by user %s at facility %s",
-            pk,
+            "Rejecting transfer %s by user %s (session %s) at facility %s",
+            external_id,
             user.username,
+            request_data.session_id,
             facility.name,
         )
 
         try:
-            response = OdooConnector.call_api(
-                f"api/care/cash/transfer/{pk}/reject", data, "PUT"
-            )
+            response = OdooConnector.call_api(f"api/care/cash/transfer/{external_id}/reject", data, "PUT")
 
             if not response.get("success", False):
-                raise ValidationError(
-                    response.get("message", "Failed to reject transfer in Odoo")
-                )
+                raise ValidationError(response.get("message", "Failed to reject transfer in Odoo"))
 
             return Response(
                 {
@@ -332,7 +321,7 @@ class CashTransferViewSet(CareOdooBaseViewSet):
             raise ValidationError(f"Error rejecting cash transfer: {str(e)}") from e
 
     @action(detail=True, methods=["put", "post"], url_path="cancel")
-    def cancel_transfer(self, request, pk=None, facility_external_id=None):
+    def cancel_transfer(self, request, external_id=None, facility_external_id=None):
         """
         Cancel a pending cash transfer (by sender).
 
@@ -342,7 +331,7 @@ class CashTransferViewSet(CareOdooBaseViewSet):
             "reason": "Transfer created by mistake"  # Optional
         }
         """
-        if not pk:
+        if not external_id:
             raise ValidationError("Transfer ID is required")
 
         try:
@@ -367,20 +356,16 @@ class CashTransferViewSet(CareOdooBaseViewSet):
 
         logger.info(
             "Cancelling transfer %s by user %s at facility %s",
-            pk,
+            external_id,
             user.username,
             facility.name,
         )
 
         try:
-            response = OdooConnector.call_api(
-                f"api/care/cash/transfer/{pk}/cancel", data, "PUT"
-            )
+            response = OdooConnector.call_api(f"api/care/cash/transfer/{external_id}/cancel", data, "PUT")
 
             if not response.get("success", False):
-                raise ValidationError(
-                    response.get("message", "Failed to cancel transfer in Odoo")
-                )
+                raise ValidationError(response.get("message", "Failed to cancel transfer in Odoo"))
 
             return Response(
                 {
@@ -401,7 +386,7 @@ class CashTransferViewSet(CareOdooBaseViewSet):
         Get pending incoming transfers at a location.
 
         GET /facility/{facility_external_id}/cash-transfer/pending/?counter_x_care_id=UUID
-        
+
         Returns transfers pending at the specified counter. User must have access to the counter.
         """
         counter_x_care_id = request.query_params.get("counter_x_care_id")
@@ -411,7 +396,7 @@ class CashTransferViewSet(CareOdooBaseViewSet):
 
         facility = self.get_facility_obj()
         user = request.user
-        
+
         # Validate user has access to this counter
         location = self.validate_location_access(counter_x_care_id)
 
@@ -429,14 +414,10 @@ class CashTransferViewSet(CareOdooBaseViewSet):
         )
 
         try:
-            response = OdooConnector.call_api(
-                "api/care/cash/transfer/pending/", query_params, "POST"
-            )
+            response = OdooConnector.call_api("api/care/cash/transfer/pending/", query_params, "POST")
 
             transfers = response.get("transfers", [])
-            serialized_transfers = [
-                self._serialize_transfer(transfer) for transfer in transfers
-            ]
+            serialized_transfers = [self._serialize_transfer(transfer) for transfer in transfers]
 
             return Response(
                 {"success": True, "transfers": serialized_transfers},

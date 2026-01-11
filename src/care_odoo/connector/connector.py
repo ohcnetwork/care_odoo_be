@@ -3,8 +3,9 @@ import json
 import logging
 
 import requests
-from django.conf import settings
 from rest_framework.exceptions import ValidationError
+
+from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class OdooConnector:
         """
         # Include database name in credentials for Odoo session authentication
         auth = base64.b64encode(
-            f"{settings.PLUGIN_CONFIGS['care_odoo']['CARE_ODOO_USERNAME']}:{settings.PLUGIN_CONFIGS['care_odoo']['CARE_ODOO_PASSWORD']}".encode()
+            f"{plugin_settings.CARE_ODOO_USERNAME}:{plugin_settings.CARE_ODOO_PASSWORD}".encode()
         ).decode()
 
         # digital ocean
@@ -32,14 +33,14 @@ class OdooConnector:
         # local
         # url = f"http://host.docker.internal:8069/{endpoint}"
 
-        url = f"{settings.CARE_ODOO_PROTOCOL}://{settings.CARE_ODOO_HOST}"
-        if settings.CARE_ODOO_PORT:
-            url += f":{settings.CARE_ODOO_PORT}"
+        url = f"{plugin_settings.CARE_ODOO_PROTOCOL}://{plugin_settings.CARE_ODOO_HOST}"
+        if plugin_settings.CARE_ODOO_PORT:
+            url += f":{plugin_settings.CARE_ODOO_PORT}"
         url += f"/{endpoint}"
         headers = {
             "Authorization": f"Basic {auth}",
             "Content-Type": "application/json",
-            "db": settings.CARE_ODOO_DATABASE,
+            "db": plugin_settings.CARE_ODOO_DATABASE,
         }
 
         # Log curl equivalent for debugging
