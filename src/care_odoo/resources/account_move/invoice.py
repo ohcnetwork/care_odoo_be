@@ -107,19 +107,8 @@ class OdooInvoiceResource:
                     discounts=discounts,
                 )
 
-                if charge_item.service_resource == ChargeItemResourceOptions.service_request.value:
-                    service_request = ServiceRequest.objects.get(external_id=charge_item.service_resource_id)
-                    requester = service_request.requester
-                elif charge_item.service_resource == ChargeItemResourceOptions.appointment.value:
-                    token_booking = TokenBooking.objects.get(external_id=charge_item.service_resource_id)
-                    requester = token_booking.token_slot.resource.user
-                elif charge_item.service_resource == ChargeItemResourceOptions.medication_dispense.value:
-                    medication_dispense = MedicationDispense.objects.get(external_id=charge_item.service_resource_id)
-                    requester = (
-                        medication_dispense.authorizing_request.requester
-                        if medication_dispense.authorizing_request
-                        else None
-                    )
+                if charge_item.performer_actor:
+                    requester = charge_item.performer_actor
                 else:
                     requester = None
 
