@@ -8,3 +8,4 @@ class OdooConfig(AppConfig):
 
     def ready(self):
         import care_odoo.signals  # noqa
+        import care_odoo.extensions  # noqa
