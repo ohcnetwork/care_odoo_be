@@ -27,6 +27,7 @@ from care_odoo.resources.utils import (
     get_purchase_price_from_charge_item,
     get_taxes_from_definition,
 )
+from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ class OdooInvoiceResource:
                 if requester:
                     item.agent_id = str(requester.external_id)
                 invoice_items.append(item)
-        patient_official_identifier_id = {settings.PLUGIN_CONFIGS["care_odoo"]["CARE_PATIENT_OFFICIAL_IDENTIFIER"]}
+        patient_official_identifier_id = plugin_settings.CARE_PATIENT_OFFICIAL_IDENTIFIER
         if patient_official_identifier_id:
             x_identifier = next(
                 (

@@ -5,6 +5,8 @@ Utility functions for extracting price components from charge items and charge i
 from care.emr.models.charge_item import ChargeItem
 from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.resources.common.monetary_component import MonetaryComponentType
+from rest_framework.exceptions import ValidationError
+
 from care_odoo.resources.account_move.spec import (
     DiscountGroup,
     DiscountType,
@@ -209,6 +211,9 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
 
     Returns:
         List of InvoiceDiscounts if discounts found, None otherwise
+
+    Raises:
+        ValidationError: If more than 1 discount is found per item
     """
     if not charge_item or not charge_item.unit_price_components:
         return None
@@ -221,6 +226,9 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
 
     if not unit_discounts:
         return None
+
+    if len(unit_discounts) > 1:
+        raise ValidationError(f"More than 1 discount per item is not allowed. Found {len(unit_discounts)} discounts.")
 
     discounts = []
     for unit_discount in unit_discounts:

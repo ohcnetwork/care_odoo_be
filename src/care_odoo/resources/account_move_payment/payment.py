@@ -34,11 +34,16 @@ class OdooPaymentResource:
         """
         Synchronize a Django payment reconciliation to Odoo using the custom addon API.
 
+        IMPORTANT: Cash payments now REQUIRE an open session.
+
         Args:
             payment_id: External ID of the Django payment reconciliation
 
         Returns:
             Odoo payment ID if successful, None otherwise
+
+        Raises:
+            ValidationError: If cash payment attempted without open session
         """
         payment = PaymentReconciliation.objects.select_related("facility", "account", "target_invoice").get(
             external_id=payment_id
