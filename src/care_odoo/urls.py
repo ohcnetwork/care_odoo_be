@@ -15,7 +15,6 @@ def ping(request):
 
 router = DefaultRouter()
 router.register("payment-method", PaymentMethodViewSet, basename="payment-method")
-router.register("account", AccountViewSet, basename="account")
 
 # Facility-scoped router for cash management
 facility_router = DefaultRouter()
