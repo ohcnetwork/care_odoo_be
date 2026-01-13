@@ -2,11 +2,7 @@ import logging
 
 from care.emr.models.charge_item import ChargeItem
 from care.emr.models.invoice import Invoice
-from care.emr.models.medication_dispense import MedicationDispense
-from care.emr.models.scheduling.booking import TokenBooking
-from care.emr.models.service_request import ServiceRequest
 from care.emr.resources.base import model_from_cache
-from care.emr.resources.charge_item.spec import ChargeItemResourceOptions
 from care.emr.resources.tag.config_spec import TagConfigReadSpec
 from django.conf import settings
 
