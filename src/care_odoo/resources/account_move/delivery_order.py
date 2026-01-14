@@ -109,8 +109,13 @@ class OdooDeliveryOrderResource:
 
                 item = InvoiceItem(
                     product_data=product_data,
-                    quantity=str(supply_delivery.supplied_item_quantity or 0),
-                    free_qty=str((supply_delivery.extensions or {}).get("free_quantity", 0)),
+                    quantity=str(
+                        supply_delivery.supplied_item_pack_quantity or supply_delivery.supplied_item_quantity or 0
+                    ),
+                    free_qty=str(
+                        ((supply_delivery.extensions or {}).get("supply_delivery_extension") or {}).get("free_quantity")
+                        or 0
+                    ),
                     sale_price=str(purchase_price),
                     x_care_id=str(supply_delivery.external_id),
                 )
@@ -133,7 +138,7 @@ class OdooDeliveryOrderResource:
             due_date=delivery_order.created_date.strftime("%d-%m-%Y"),
             reason="",
             x_created_by=delivery_order.updated_by.full_name if delivery_order.updated_by else None,
-            payment_reference=(delivery_order.extensions or {}).get("payment_reference", "")
+            payment_reference=(delivery_order.extensions or {}).get("payment_reference", ""),
         ).model_dump()
 
         logger.info("Odoo Delivery Order Data: %s", data)
