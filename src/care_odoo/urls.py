@@ -6,6 +6,7 @@ from rest_framework_nested import routers as nested_routers
 from care_odoo.resources.account.viewset import AccountViewSet
 from care_odoo.resources.cash_session.viewset import CashSessionViewSet
 from care_odoo.resources.cash_transfer.viewset import CashTransferViewSet
+from care_odoo.resources.insurance_company.viewset import InsuranceCompanyViewSet
 from care_odoo.resources.payment_method.viewset import PaymentMethodViewSet
 
 
@@ -15,6 +16,7 @@ def ping(request):
 
 router = DefaultRouter()
 router.register("payment-method", PaymentMethodViewSet, basename="payment-method")
+router.register("insurance-company", InsuranceCompanyViewSet, basename="insurance-company")
 
 # Facility-scoped router for cash management
 facility_router = DefaultRouter()

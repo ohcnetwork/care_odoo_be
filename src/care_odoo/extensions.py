@@ -90,7 +90,22 @@ class AccountExtension(PlugExtension):
                         "sendToken": "true",
                     },
                 },
-            }
+            },
+            "insurance_company": {
+                "type": "string",
+                "title": "Insurance Company",
+                "description": "Select an insurance company to be mapped to the account",
+                "x-ui": {
+                    "control": "autocomplete",
+                    "metadata": {
+                        "url": "/api/care_odoo/insurance-company",
+                        "searchParam": "search_key",
+                        "valueField": "id",
+                        "labelField": "name",
+                        "sendToken": "true",
+                    },
+                },
+            },
         },
         "additionalProperties": "false",
     }

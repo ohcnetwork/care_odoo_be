@@ -4,9 +4,6 @@ from care.emr.models.charge_item import ChargeItem
 from care.emr.models.invoice import Invoice
 from care.emr.resources.base import model_from_cache
 from care.emr.resources.tag.config_spec import TagConfigReadSpec
-from django.conf import settings
-
-from care_odoo.apps import PLUGIN_NAME
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move.spec import (
     AccountMoveApiRequest,
@@ -124,6 +121,7 @@ class OdooInvoiceResource:
         logger.info("Tags: %s", invoice.account.tags)
         account_tags = self.render_tags_ids(invoice.account.tags)
         logger.info("Account Tags: %s", account_tags)
+        logger.info("Account Extensions: %s", invoice.account.extensions)
         data = AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
@@ -132,13 +130,24 @@ class OdooInvoiceResource:
             bill_type=BillType.customer,
             due_date=invoice.created_date.strftime("%d-%m-%Y"),
             reason="",
-            payment_method_id=invoice.account.extensions.get(
-                settings.PLUGIN_CONFIGS["care_odoo"]["CARE_ODOO_ACCOUNT_EXTENSION_NAME"]
-            )
-            if invoice.account.extensions
-            and settings.PLUGIN_CONFIGS["care_odoo"]["CARE_ODOO_ACCOUNT_EXTENSION_NAME"]
-            in invoice.account.extensions.keys()
-            else None,
+            payment_method_id=(
+                invoice.account.extensions.get("account_extension", {}).get(
+                    plugin_settings.CARE_ODOO_ACCOUNT_EXTENSION_NAME
+                )
+                if invoice.account.extensions.get("account_extension")
+                and plugin_settings.CARE_ODOO_ACCOUNT_EXTENSION_NAME
+                in invoice.account.extensions.get("account_extension", {})
+                else None
+            ),
+            insurance_company_id=(
+                invoice.account.extensions.get("account_extension", {}).get(
+                    plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
+                )
+                if invoice.account.extensions.get("account_extension")
+                and plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
+                in invoice.account.extensions.get("account_extension", {})
+                else None
+            ),
             x_created_by=invoice.updated_by.full_name if invoice.updated_by else None,
             x_identifier=x_identifier,
             insurance_tag=account_tags,
