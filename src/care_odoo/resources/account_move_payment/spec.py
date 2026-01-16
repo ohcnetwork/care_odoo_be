@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel
@@ -30,7 +31,7 @@ class BillCounterData(BaseModel):
 class AccountMovePaymentApiRequest(BaseModel):
     x_care_id: str
     journal_x_care_id: str | None = None
-    amount: float = 0.0
+    amount: Decimal = Decimal("0.0")
     journal_input: JournalType
     payment_date: str
     payment_mode: PaymentMode

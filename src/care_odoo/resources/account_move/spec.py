@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -20,8 +21,8 @@ class InvoiceDiscounts(BaseModel):
     name: str
     discount_group: DiscountGroup
     discount_type: DiscountType
-    rate: float = 0.0
-    disc_amt: float = 0.0
+    rate: Decimal = Decimal("0.0")
+    disc_amt: Decimal = Decimal("0.0")
 
 
 class AgentData(BaseModel):

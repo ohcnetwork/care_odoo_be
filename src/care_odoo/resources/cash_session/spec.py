@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -14,7 +15,7 @@ class OpenSessionRequest(BaseModel):
     """Request to open a new cash session."""
 
     counter_x_care_id: str = Field(..., description="Counter/location Care ID")
-    opening_balance: float = Field(default=0.0, description="Opening balance amount")
+    opening_balance: Decimal = Field(default=Decimal("0.0"), description="Opening balance amount")
 
 
 class CloseSessionRequest(BaseModel):
@@ -27,8 +28,8 @@ class SessionData(BaseModel):
 
     id: int
     status: str
-    opening_balance: float
-    expected_amount: float
+    opening_balance: Decimal
+    expected_amount: Decimal
     counter_id: int
     counter_x_care_id: str
     external_user_id: str
@@ -36,9 +37,9 @@ class SessionData(BaseModel):
     counter_name: str
     opened_at: str
     closed_at: str | None = None
-    closing_expected: float
-    closing_declared: float
-    closing_difference: float
+    closing_expected: Decimal
+    closing_declared: Decimal
+    closing_difference: Decimal
     difference_status: str | None = None
     payment_count: int
     pending_outgoing_count: int

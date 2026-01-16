@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -17,7 +18,7 @@ class CreateTransferRequest(BaseModel):
 
     from_counter_x_care_id: str = Field(..., description="Sender counter Care ID")
     to_session_id: str = Field(..., description="Receiver session ID")
-    amount: float = Field(..., description="Transfer amount")
+    amount: Decimal = Field(..., description="Transfer amount")
     denominations: dict[str, int] | None = Field(
         default=None, description="Required for main cash transfers"
     )
@@ -50,7 +51,7 @@ class TransferData(BaseModel):
 
     id: int
     status: str
-    amount: float
+    amount: Decimal
     from_session_id: int
     from_user_name: str
     from_counter_name: str
