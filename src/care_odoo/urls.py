@@ -1,9 +1,7 @@
 from django.http import JsonResponse
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from rest_framework_nested import routers as nested_routers
 
-from care_odoo.resources.account.viewset import AccountViewSet
 from care_odoo.resources.cash_session.viewset import CashSessionViewSet
 from care_odoo.resources.cash_transfer.viewset import CashTransferViewSet
 from care_odoo.resources.insurance_company.viewset import InsuranceCompanyViewSet
