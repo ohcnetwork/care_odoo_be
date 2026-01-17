@@ -130,7 +130,7 @@ class OdooInvoiceResource:
             bill_type=BillType.customer,
             due_date=invoice.created_date.strftime("%d-%m-%Y"),
             reason="",
-            payment_method_id=(
+            sponsor_company_id=(
                 invoice.account.extensions.get("account_extension", {}).get(
                     plugin_settings.CARE_ODOO_ACCOUNT_EXTENSION_NAME
                 )

@@ -3,10 +3,10 @@ from rest_framework.response import Response
 
 from care_odoo.connector.connector import OdooConnector
 from care.emr.api.viewsets.base import EMRBaseViewSet
-from care_odoo.resources.payment_method.spec import PaymentMethodData
+from care_odoo.resources.payment_method.spec import SponsorData
 
 
-class PaymentMethodViewSet(EMRBaseViewSet):
+class SponsorViewSet(EMRBaseViewSet):
     def _build_query_params(self, request):
         """Build query parameters for Odoo API from request."""
         query_params = {}
@@ -21,23 +21,23 @@ class PaymentMethodViewSet(EMRBaseViewSet):
 
     def list(self, request):
         """
-        List payment methods from Odoo with filtering and search.
+        List sponsors from Odoo with filtering and search.
         """
         query_params = self._build_query_params(request)
 
         try:
-            # Call Odoo API to list payment methods
-            response = OdooConnector.call_api("api/payment/methods/search", query_params, "GET")
+            # Call Odoo API to list sponsors
+            response = OdooConnector.call_api("api/sponsors/search", query_params, "GET")
 
-            # Extract accounts from response
-            payment_methods = response.get("payment_methods", [])
+            # Extract sponsors from response
+            sponsors = response.get("sponsors", [])
 
-            # Serialize payment methods using PaymentMethodData spec
-            serialized_payment_methods = []
-            for payment_method in payment_methods:
-                payment_method_data = PaymentMethodData(**payment_method)
-                serialized_payment_methods.append(payment_method_data.model_dump())
+            # Serialize sponsors using SponsorData spec
+            serialized_sponsors = []
+            for sponsor in sponsors:
+                sponsor_data = SponsorData(**sponsor)
+                serialized_sponsors.append(sponsor_data.model_dump())
 
-            return Response(serialized_payment_methods)
+            return Response(serialized_sponsors)
         except Exception as e:
-            raise ValidationError(f"Error fetching accounts from Odoo: {str(e)}") from e
+            raise ValidationError(f"Error fetching sponsors from Odoo: {str(e)}") from e

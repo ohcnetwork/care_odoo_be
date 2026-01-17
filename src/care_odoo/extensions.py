@@ -76,14 +76,14 @@ class AccountExtension(PlugExtension):
         "description": "Example schema demonstrating autocomplete field usage",
         "type": "object",
         "properties": {
-            "odoo_account": {
+            "sponsor_account": {
                 "type": "string",
-                "title": "Odoo Account",
-                "description": "Select an Odoo account to be mapped to the account",
+                "title": "Sponsor Account",
+                "description": "Select a sponsor account to be mapped to the account",
                 "x-ui": {
                     "control": "autocomplete",
                     "metadata": {
-                        "url": "/api/care_odoo/payment-method",
+                        "url": "/api/care_odoo/sponsor",
                         "searchParam": "search_key",
                         "valueField": "id",
                         "labelField": "name",
