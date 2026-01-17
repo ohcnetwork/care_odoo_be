@@ -2,6 +2,8 @@
 Utility functions for extracting price components from charge items and charge item definitions.
 """
 
+from typing import Any
+
 from care.emr.models.charge_item import ChargeItem
 from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.resources.common.monetary_component import MonetaryComponentType
@@ -269,3 +271,35 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
         )
 
     return discounts if discounts else None
+
+
+def format_name(user, hide_prefix_suffix: bool = False) -> str:
+    """
+    Format a user's full name from their name components.
+
+    Args:
+        user: User object with first_name, last_name, prefix, suffix, username attributes
+        hide_prefix_suffix: If True, excludes prefix and suffix from the formatted name
+
+    Returns:
+        Formatted name string, or username if no name parts, or "-" if nothing available
+    """
+    if not user:
+        return "-"
+
+    name_parts = [
+        None if hide_prefix_suffix else getattr(user, "prefix", None),
+        getattr(user, "first_name", None),
+        getattr(user, "last_name", None),
+        None if hide_prefix_suffix else getattr(user, "suffix", None),
+    ]
+
+    # Filter out None/empty values and strip whitespace
+    name = " ".join(part.strip() for part in name_parts if part and part.strip())
+
+    if name:
+        return name
+
+    # Fall back to username
+    username = getattr(user, "username", None)
+    return username if username else "-"

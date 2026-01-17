@@ -24,3 +24,6 @@ class PartnerData(BaseModel):
     agent: bool
     pan: str | None = None
     status: PartnerStatus | None = None
+    gender: str | None = None
+    birthdate: str | None = None
+    street: str | None = None

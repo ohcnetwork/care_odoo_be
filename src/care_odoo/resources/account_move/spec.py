@@ -58,6 +58,10 @@ class AccountMoveApiRequest(BaseModel):
     x_created_by: str | None = None
     payment_reference: str | None = None
     insurance_company_id: int | None = None
+    doctor: str | None = None
+    admission_date: str | None = None
+    discharge_date: str | None = None
+    x_account: str | None = None
 
 
 # TODO: Remove unused fields after Connector is updated

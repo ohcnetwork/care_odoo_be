@@ -1,5 +1,9 @@
 import logging
 
+from django.contrib.auth import get_user_model
+from django.utils.dateparse import parse_datetime
+from rest_framework.exceptions import ValidationError
+
 from care.emr.models.charge_item import ChargeItem
 from care.emr.models.invoice import Invoice
 from care.emr.resources.base import model_from_cache
@@ -56,6 +60,9 @@ class OdooInvoiceResource:
             state="kerala",
             email="",
             agent=False,
+            gender=invoice.patient.gender if invoice.patient.gender else None,
+            birthdate=invoice.patient.date_of_birth.strftime("%d-%m-%Y") if invoice.patient.date_of_birth else None,
+            street=invoice.patient.address if invoice.patient.address else None,
         )
 
         # Prepare invoice items
@@ -122,6 +129,51 @@ class OdooInvoiceResource:
         account_tags = self.render_tags_ids(invoice.account.tags)
         logger.info("Account Tags: %s", account_tags)
         logger.info("Account Extensions: %s", invoice.account.extensions)
+
+        # Extract encounter from first charge item with same account that has an encounter
+        encounter = None
+        charge_item_with_encounter = (
+            ChargeItem.objects.filter(account=invoice.account, encounter__isnull=False)
+            .select_related("encounter")
+            .first()
+        )
+
+        if not charge_item_with_encounter:
+            raise ValidationError("No encounter found for charge items with this account")
+
+        encounter = charge_item_with_encounter.encounter
+
+        # Extract encounter details
+        doctor = None
+        admission_date = None
+        discharge_date = None
+
+        # Get doctor name from encounter's care team (first member)
+        care_team = encounter.care_team or []
+        if care_team:
+            first_member = care_team[0] if isinstance(care_team, list) else None
+            if first_member and first_member.get("user_id"):
+                User = get_user_model()
+                try:
+                    user = User.objects.get(id=first_member["user_id"])
+                    doctor = user.full_name
+                except User.DoesNotExist:
+                    pass
+        # Get admission and discharge dates from encounter period
+        period = encounter.period or {}
+        if period.get("start"):
+            start_date = period["start"]
+            if isinstance(start_date, str):
+                start_date = parse_datetime(start_date)
+            if start_date:
+                admission_date = start_date.strftime("%d-%m-%Y %H:%M:%S")
+        if period.get("end"):
+            end_date = period["end"]
+            if isinstance(end_date, str):
+                end_date = parse_datetime(end_date)
+            if end_date:
+                discharge_date = end_date.strftime("%d-%m-%Y %H:%M:%S")
+
         data = AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
@@ -151,6 +203,10 @@ class OdooInvoiceResource:
             x_created_by=invoice.updated_by.full_name if invoice.updated_by else None,
             x_identifier=x_identifier,
             insurance_tag=account_tags,
+            doctor=doctor,
+            admission_date=admission_date,
+            discharge_date=discharge_date,
+            x_account=invoice.account.name if invoice.account else None,
         ).model_dump()
         logger.info("Odoo Invoice Data: %s", data)
 
