@@ -76,21 +76,6 @@ class AccountExtension(PlugExtension):
         "description": "Example schema demonstrating autocomplete field usage",
         "type": "object",
         "properties": {
-            "sponsor_account": {
-                "type": "string",
-                "title": "Sponsor Account",
-                "description": "Select a sponsor account to be mapped to the account",
-                "x-ui": {
-                    "control": "autocomplete",
-                    "metadata": {
-                        "url": "/api/care_odoo/sponsor",
-                        "searchParam": "search_key",
-                        "valueField": "id",
-                        "labelField": "name",
-                        "sendToken": "true",
-                    },
-                },
-            },
             "insurance_company": {
                 "type": "string",
                 "title": "Insurance Company",

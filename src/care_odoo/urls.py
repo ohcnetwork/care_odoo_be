@@ -5,7 +5,6 @@ from rest_framework.routers import DefaultRouter
 from care_odoo.resources.cash_session.viewset import CashSessionViewSet
 from care_odoo.resources.cash_transfer.viewset import CashTransferViewSet
 from care_odoo.resources.insurance_company.viewset import InsuranceCompanyViewSet
-from care_odoo.resources.payment_method.viewset import SponsorViewSet
 
 
 def ping(request):
@@ -13,7 +12,6 @@ def ping(request):
 
 
 router = DefaultRouter()
-router.register("sponsor", SponsorViewSet, basename="sponsor")
 router.register("insurance-company", InsuranceCompanyViewSet, basename="insurance-company")
 
 # Facility-scoped router for cash management

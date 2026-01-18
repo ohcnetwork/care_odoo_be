@@ -182,15 +182,6 @@ class OdooInvoiceResource:
             bill_type=BillType.customer,
             due_date=invoice.created_date.strftime("%d-%m-%Y"),
             reason="",
-            sponsor_company_id=(
-                invoice.account.extensions.get("account_extension", {}).get(
-                    plugin_settings.CARE_ODOO_ACCOUNT_EXTENSION_NAME
-                )
-                if invoice.account.extensions.get("account_extension")
-                and plugin_settings.CARE_ODOO_ACCOUNT_EXTENSION_NAME
-                in invoice.account.extensions.get("account_extension", {})
-                else None
-            ),
             insurance_company_id=(
                 invoice.account.extensions.get("account_extension", {}).get(
                     plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
