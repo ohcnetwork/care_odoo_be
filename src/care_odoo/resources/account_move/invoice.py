@@ -126,53 +126,66 @@ class OdooInvoiceResource:
                 None,
             )
         logger.info("Tags: %s", invoice.account.tags)
-        account_tags = self.render_tags_ids(invoice.account.tags)
-        logger.info("Account Tags: %s", account_tags)
         logger.info("Account Extensions: %s", invoice.account.extensions)
 
-        # Extract encounter from first charge item with same account that has an encounter
-        encounter = None
-        charge_item_with_encounter = (
-            ChargeItem.objects.filter(account=invoice.account, encounter__isnull=False)
-            .select_related("encounter")
-            .first()
+        # Get insurance company id first to determine if insurance fields should be included
+        insurance_company_id = (
+            invoice.account.extensions.get("account_extension", {}).get(
+                plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
+            )
+            if invoice.account.extensions.get("account_extension")
+            and plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
+            in invoice.account.extensions.get("account_extension", {})
+            else None
         )
 
-        if not charge_item_with_encounter:
-            raise ValidationError("No encounter found for charge items with this account")
-
-        encounter = charge_item_with_encounter.encounter
-
-        # Extract encounter details
+        # Extract encounter and insurance details only if insurance_company_id is set
         doctor = None
         admission_date = None
         discharge_date = None
+        account_tags = None
 
-        # Get doctor name from encounter's care team (first member)
-        care_team = encounter.care_team or []
-        if care_team:
-            first_member = care_team[0] if isinstance(care_team, list) else None
-            if first_member and first_member.get("user_id"):
-                User = get_user_model()
-                try:
-                    user = User.objects.get(id=first_member["user_id"])
-                    doctor = user.full_name
-                except User.DoesNotExist:
-                    pass
-        # Get admission and discharge dates from encounter period
-        period = encounter.period or {}
-        if period.get("start"):
-            start_date = period["start"]
-            if isinstance(start_date, str):
-                start_date = parse_datetime(start_date)
-            if start_date:
-                admission_date = start_date.strftime("%d-%m-%Y %H:%M:%S")
-        if period.get("end"):
-            end_date = period["end"]
-            if isinstance(end_date, str):
-                end_date = parse_datetime(end_date)
-            if end_date:
-                discharge_date = end_date.strftime("%d-%m-%Y %H:%M:%S")
+        if insurance_company_id:
+            account_tags = self.render_tags_ids(invoice.account.tags)
+            logger.info("Account Tags: %s", account_tags)
+
+            # Extract encounter from first charge item with same account that has an encounter
+            charge_item_with_encounter = (
+                ChargeItem.objects.filter(account=invoice.account, encounter__isnull=False)
+                .select_related("encounter")
+                .first()
+            )
+
+            if not charge_item_with_encounter:
+                raise ValidationError("No encounter found for charge items with this account")
+
+            encounter = charge_item_with_encounter.encounter
+
+            # Get doctor name from encounter's care team (first member)
+            care_team = encounter.care_team or []
+            if care_team:
+                first_member = care_team[0] if isinstance(care_team, list) else None
+                if first_member and first_member.get("user_id"):
+                    User = get_user_model()
+                    try:
+                        user = User.objects.get(id=first_member["user_id"])
+                        doctor = user.full_name
+                    except User.DoesNotExist:
+                        pass
+            # Get admission and discharge dates from encounter period
+            period = encounter.period or {}
+            if period.get("start"):
+                start_date = period["start"]
+                if isinstance(start_date, str):
+                    start_date = parse_datetime(start_date)
+                if start_date:
+                    admission_date = start_date.strftime("%d-%m-%Y %H:%M:%S")
+            if period.get("end"):
+                end_date = period["end"]
+                if isinstance(end_date, str):
+                    end_date = parse_datetime(end_date)
+                if end_date:
+                    discharge_date = end_date.strftime("%d-%m-%Y %H:%M:%S")
 
         data = AccountMoveApiRequest(
             partner_data=partner_data,
@@ -191,15 +204,7 @@ class OdooInvoiceResource:
                 in invoice.account.extensions.get("account_extension", {})
                 else None
             ),
-            insurance_company_id=(
-                invoice.account.extensions.get("account_extension", {}).get(
-                    plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
-                )
-                if invoice.account.extensions.get("account_extension")
-                and plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
-                in invoice.account.extensions.get("account_extension", {})
-                else None
-            ),
+            insurance_company_id=insurance_company_id,
             x_created_by=invoice.updated_by.full_name if invoice.updated_by else None,
             x_identifier=x_identifier,
             insurance_tag=account_tags,
