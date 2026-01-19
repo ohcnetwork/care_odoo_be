@@ -1,3 +1,5 @@
+import logging
+
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
@@ -30,6 +32,10 @@ from care_odoo.resources.product_category.category import OdooCategoryResource
 from care_odoo.resources.product_product.resource import OdooProductProductResource
 from care_odoo.resources.res_partner.resource import OdooPartnerResource
 from care_odoo.resources.res_user.resource import OdooUserResource
+from care_odoo.settings import plugin_settings
+from care_odoo.tasks import verify_invoice_exists_or_cleanup, verify_payment_exists_or_cleanup
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=User)
@@ -55,8 +61,20 @@ def capture_previous_status(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Invoice)
 def save_fields_before_update(sender, instance, raw, using, update_fields, **kwargs):
+    """
+    Signal handler to sync invoice to Odoo when status changes.
+
+    After successfully creating an invoice in Odoo, schedules a cleanup task
+    to verify the invoice exists in Care DB after the transaction completes.
+    If the Care transaction rolls back, the cleanup task will cancel the
+    orphaned invoice in Odoo.
+    """
     # Skip sync if only 'number' field is being updated
     if update_fields and update_fields == {"number"}:
+        return
+
+    # Skip sync if the record is being soft-deleted
+    if instance.deleted:
         return
 
     # Access previous status if needed: getattr(instance, "_previous_status", None)
@@ -67,6 +85,20 @@ def save_fields_before_update(sender, instance, raw, using, update_fields, **kwa
     ]:
         odoo_integration = OdooInvoiceResource()
         odoo_integration.sync_invoice_to_odoo_api(instance.external_id)
+
+        # Schedule cleanup task to verify invoice exists after transaction completes
+        # The task runs after a delay to give the transaction time to commit or rollback
+        # If the transaction rolled back, this task will clean up the orphaned Odoo invoice
+        cleanup_delay = plugin_settings.CARE_ODOO_CLEANUP_DELAY_SECONDS
+        logger.info(
+            "Scheduling invoice cleanup verification task for %s in %d seconds",
+            instance.external_id,
+            cleanup_delay,
+        )
+        verify_invoice_exists_or_cleanup.apply_async(
+            args=[str(instance.external_id)],
+            countdown=cleanup_delay,
+        )
     elif instance.status in INVOICE_CANCELLED_STATUS and instance._previous_status in [
         InvoiceStatusOptions.issued.value,
         InvoiceStatusOptions.balanced.value,
@@ -79,10 +111,33 @@ def save_fields_before_update(sender, instance, raw, using, update_fields, **kwa
 def sync_payment_to_odoo(sender, instance, created, **kwargs):
     """
     Signal handler to sync payment reconciliation to Odoo when created.
+
+    After successfully creating a payment in Odoo, schedules a cleanup task
+    to verify the payment exists in Care DB after the transaction completes.
+    If the Care transaction rolls back, the cleanup task will cancel the
+    orphaned payment in Odoo.
     """
+    # Skip sync if the record is being soft-deleted
+    if instance.deleted:
+        return
+
     if instance.status == PaymentReconciliationStatusOptions.active.value:
         odoo_payment = OdooPaymentResource()
         odoo_payment.sync_payment_to_odoo_api(instance.external_id)
+
+        # Schedule cleanup task to verify payment exists after transaction completes
+        # The task runs after a delay to give the transaction time to commit or rollback
+        # If the transaction rolled back, this task will clean up the orphaned Odoo payment
+        cleanup_delay = plugin_settings.CARE_ODOO_CLEANUP_DELAY_SECONDS
+        logger.info(
+            "Scheduling payment cleanup verification task for %s in %d seconds",
+            instance.external_id,
+            cleanup_delay,
+        )
+        verify_payment_exists_or_cleanup.apply_async(
+            args=[str(instance.external_id)],
+            countdown=cleanup_delay,
+        )
     elif instance.status in [
         PaymentReconciliationStatusOptions.cancelled.value,
         PaymentReconciliationStatusOptions.entered_in_error.value,
