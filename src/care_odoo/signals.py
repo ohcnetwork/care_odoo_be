@@ -73,6 +73,10 @@ def save_fields_before_update(sender, instance, raw, using, update_fields, **kwa
     if update_fields and update_fields == {"number"}:
         return
 
+    # Skip sync if the record is being soft-deleted
+    if instance.deleted:
+        return
+
     # Access previous status if needed: getattr(instance, "_previous_status", None)
     # current_status = instance.status
 
@@ -113,6 +117,10 @@ def sync_payment_to_odoo(sender, instance, created, **kwargs):
     If the Care transaction rolls back, the cleanup task will cancel the
     orphaned payment in Odoo.
     """
+    # Skip sync if the record is being soft-deleted
+    if instance.deleted:
+        return
+
     if instance.status == PaymentReconciliationStatusOptions.active.value:
         odoo_payment = OdooPaymentResource()
         odoo_payment.sync_payment_to_odoo_api(instance.external_id)

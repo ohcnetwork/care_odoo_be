@@ -1,5 +1,4 @@
 import logging
-import time
 
 from celery import shared_task
 from requests.exceptions import ConnectionError, Timeout
@@ -8,10 +7,6 @@ from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move_payment.spec import AccountPaymentCancelApiRequest
 
 logger = logging.getLogger(__name__)
-
-# Seconds to wait before re-checking if record truly doesn't exist
-# This helps avoid false positives from slow-committing transactions
-RECHECK_DELAY_SECONDS = 5
 
 
 @shared_task(
@@ -29,10 +24,6 @@ def verify_payment_exists_or_cleanup(self, payment_external_id: str) -> dict:
     This task is scheduled with a delay after creating a payment in Odoo to handle
     the case where the Odoo API call succeeds but the Care transaction rolls back.
 
-    Uses a double-check mechanism: if the record is not found on first check,
-    waits a few seconds and checks again to avoid false positives from
-    slow-committing transactions.
-
     Args:
         payment_external_id: The external_id of the PaymentReconciliation
 
@@ -47,7 +38,6 @@ def verify_payment_exists_or_cleanup(self, payment_external_id: str) -> dict:
         payment_external_id,
     )
 
-    # First check
     payment_exists = PaymentReconciliation.objects.filter(
         external_id=payment_external_id
     ).exists()
@@ -63,35 +53,10 @@ def verify_payment_exists_or_cleanup(self, payment_external_id: str) -> dict:
             "message": f"Payment {payment_external_id} exists in Care DB",
         }
 
-    # Record not found - but transaction might still be committing
-    # Wait and check again to avoid false positives
-    logger.info(
-        "Payment %s not found on first check. Waiting %ds before re-checking...",
-        payment_external_id,
-        RECHECK_DELAY_SECONDS,
-    )
-    time.sleep(RECHECK_DELAY_SECONDS)
-
-    # Second check - if still not found, proceed with cleanup
-    payment_exists = PaymentReconciliation.objects.filter(
-        external_id=payment_external_id
-    ).exists()
-
-    if payment_exists:
-        logger.info(
-            "Payment %s found on second check. Transaction committed late. No cleanup needed.",
-            payment_external_id,
-        )
-        return {
-            "status": "success",
-            "action": "none",
-            "message": f"Payment {payment_external_id} exists in Care DB (found on recheck)",
-        }
-
-    # Payment confirmed not in Care DB - the transaction must have rolled back
+    # Payment not in Care DB - the transaction must have rolled back
     # We need to cancel/delete the payment in Odoo
     logger.warning(
-        "Payment %s NOT found in Care DB after double-check. Initiating Odoo cleanup.",
+        "Payment %s NOT found in Care DB. Initiating Odoo cleanup.",
         payment_external_id,
     )
 
@@ -142,10 +107,6 @@ def verify_invoice_exists_or_cleanup(self, invoice_external_id: str) -> dict:
     This task is scheduled with a delay after creating an invoice in Odoo to handle
     the case where the Odoo API call succeeds but the Care transaction rolls back.
 
-    Uses a double-check mechanism: if the record is not found on first check,
-    waits a few seconds and checks again to avoid false positives from
-    slow-committing transactions.
-
     Args:
         invoice_external_id: The external_id of the Invoice
 
@@ -162,7 +123,6 @@ def verify_invoice_exists_or_cleanup(self, invoice_external_id: str) -> dict:
         invoice_external_id,
     )
 
-    # First check
     invoice_exists = Invoice.objects.filter(
         external_id=invoice_external_id
     ).exists()
@@ -178,35 +138,10 @@ def verify_invoice_exists_or_cleanup(self, invoice_external_id: str) -> dict:
             "message": f"Invoice {invoice_external_id} exists in Care DB",
         }
 
-    # Record not found - but transaction might still be committing
-    # Wait and check again to avoid false positives
-    logger.info(
-        "Invoice %s not found on first check. Waiting %ds before re-checking...",
-        invoice_external_id,
-        RECHECK_DELAY_SECONDS,
-    )
-    time.sleep(RECHECK_DELAY_SECONDS)
-
-    # Second check - if still not found, proceed with cleanup
-    invoice_exists = Invoice.objects.filter(
-        external_id=invoice_external_id
-    ).exists()
-
-    if invoice_exists:
-        logger.info(
-            "Invoice %s found on second check. Transaction committed late. No cleanup needed.",
-            invoice_external_id,
-        )
-        return {
-            "status": "success",
-            "action": "none",
-            "message": f"Invoice {invoice_external_id} exists in Care DB (found on recheck)",
-        }
-
-    # Invoice confirmed not in Care DB - the transaction must have rolled back
+    # Invoice not in Care DB - the transaction must have rolled back
     # We need to return/cancel the invoice in Odoo
     logger.warning(
-        "Invoice %s NOT found in Care DB after double-check. Initiating Odoo cleanup.",
+        "Invoice %s NOT found in Care DB. Initiating Odoo cleanup.",
         invoice_external_id,
     )
 
