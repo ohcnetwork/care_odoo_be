@@ -61,6 +61,7 @@ class AccountMoveApiRequest(BaseModel):
     admission_date: str | None = None
     discharge_date: str | None = None
     x_account: str | None = None
+    is_refund: bool = False
 
 
 # TODO: Remove unused fields after Connector is updated

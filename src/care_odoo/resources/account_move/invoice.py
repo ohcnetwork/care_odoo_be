@@ -203,6 +203,7 @@ class OdooInvoiceResource:
             admission_date=admission_date,
             discharge_date=discharge_date,
             x_account=invoice.account.name if invoice.account else None,
+            is_refund=getattr(invoice, "is_refund", False),
         ).model_dump()
         logger.info("Odoo Invoice Data: %s", data)
 

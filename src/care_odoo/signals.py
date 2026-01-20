@@ -179,8 +179,13 @@ def sync_organization_to_odoo(sender, instance, created, **kwargs):
 def sync_delivery_order_to_odoo(sender, instance, created, **kwargs):
     """
     Signal handler to sync delivery order to Odoo as a vendor bill when completed.
+    Ignores delivery orders with a patient relation (patient-specific deliveries).
     """
-    if instance.status == SupplyDeliveryOrderStatusOptions.completed.value and not instance.origin:
+    if (
+        instance.status == SupplyDeliveryOrderStatusOptions.completed.value
+        and not instance.origin
+        and not instance.patient
+    ):
         odoo_delivery_order = OdooDeliveryOrderResource()
         odoo_delivery_order.sync_delivery_order_to_odoo_api(instance.external_id)
 
