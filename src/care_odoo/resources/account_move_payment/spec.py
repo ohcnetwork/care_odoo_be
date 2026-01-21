@@ -1,7 +1,7 @@
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from care_odoo.resources.res_partner.spec import PartnerData
 
@@ -10,6 +10,7 @@ class JournalType(str, Enum):
     cash = "cash"
     bank = "bank"
     card = "card"
+    credit = "credit"  # Care of Accounts (charity/sponsor payments)
 
 
 class PaymentMode(str, Enum):
@@ -39,6 +40,18 @@ class AccountMovePaymentApiRequest(BaseModel):
     customer_type: CustomerType
     counter_data: BillCounterData
     bank_reference: str | None = None
+    # For credit payments - specifies which charity/fund is paying
+    payment_method_line_id: int | None = None
+
+    @model_validator(mode="after")
+    def validate_payment_method_line(self):
+        """Validate that credit payments include payment_method_line_id."""
+        if self.journal_input == JournalType.credit and not self.payment_method_line_id:
+            raise ValueError(
+                "payment_method_line_id is required for credit (Care of Account) payments. "
+                "Use GET /api/v1/odoo/payment-method-line/ to fetch available payment methods."
+            )
+        return self
 
 
 class AccountPaymentCancelApiRequest(BaseModel):
