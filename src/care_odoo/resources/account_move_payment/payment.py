@@ -2,9 +2,13 @@ import logging
 from decimal import Decimal
 
 from care.emr.models.payment_reconciliation import PaymentReconciliation
+from care.emr.resources.base import model_from_cache
 from care.emr.resources.payment_reconciliation.spec import (
     PaymentReconciliationPaymentMethodOptions,
 )
+from care.emr.resources.tag.config_spec import TagConfigReadSpec
+from rest_framework.exceptions import ValidationError
+
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move_payment.spec import (
     AccountMovePaymentApiRequest,
@@ -15,6 +19,7 @@ from care_odoo.resources.account_move_payment.spec import (
     PaymentMode,
 )
 from care_odoo.resources.res_partner.spec import PartnerData, PartnerType
+from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,7 @@ class CreditPaymentData:
 
 
 class OdooPaymentResource:
+<<<<<<< HEAD
     # Extension key for credit payment data
     CREDIT_EXTENSION_KEY = "payment_reconciliation_credit_extension"
 
@@ -111,6 +117,27 @@ class OdooPaymentResource:
         return {
             "payment_method_line_id": payment_method_line_id,
         }
+=======
+    def has_insurance_tag(self, account_tags: list[int], insurance_tag_external_id: str) -> bool:
+        """
+        Check if any tag in account_tags has an external_id matching insurance_tag_external_id.
+
+        Args:
+            account_tags: List of tag database IDs from the account
+            insurance_tag_external_id: The external_id (UUID) of the insurance tag from settings
+
+        Returns:
+            True if account has the insurance tag, False otherwise
+        """
+        if not insurance_tag_external_id or not account_tags:
+            return False
+
+        for tag_id in account_tags:
+            cached_tag = model_from_cache(TagConfigReadSpec, id=tag_id)
+            if cached_tag and str(cached_tag.get("id")) == insurance_tag_external_id:
+                return True
+        return False
+>>>>>>> main
 
     def sync_payment_to_odoo_api(self, payment_id: str) -> int | None:
         """
@@ -132,6 +159,7 @@ class OdooPaymentResource:
 
         Raises:
             ValidationError: If cash payment attempted without open session
+            ValidationError: If issuer is set but insurance configuration is missing
         """
         payment = PaymentReconciliation.objects.select_related(
             "facility", "account", "account__patient", "target_invoice", "location", "created_by"
@@ -139,6 +167,50 @@ class OdooPaymentResource:
 
         # Check if this is a credit payment (Care of Account)
         credit_data = self._get_credit_extension_data(payment)
+
+        # Handle insurance company id when issuer is set
+        if payment.issuer_type == "insurer":
+            # Validate insurance configuration
+            insurance_tag_id = plugin_settings.CARE_INSURANCE_TAG_ID
+            insurance_extension_name = plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
+
+            if not insurance_extension_name:
+                raise ValidationError(
+                    "CARE_ODOO_INSURANCE_EXTENSION_NAME must be configured when issuer is set on payment"
+                )
+
+            if not insurance_tag_id:
+                raise ValidationError("CARE_INSURANCE_TAG_ID must be configured when issuer is set on payment")
+
+            # Check if account has the insurance tag
+            # Note: insurance_tag_id is an external_id (UUID), account_tags contains database IDs
+            account_tags = payment.account.tags or []
+            has_insurance_tag_flag = self.has_insurance_tag(account_tags, insurance_tag_id)
+
+            if not has_insurance_tag_flag:
+                raise ValidationError("Account must have insurance tag for insurance payments")
+
+            # Get insurance company id from account extensions
+            insurance_company_id_raw = (
+                payment.account.extensions.get("account_extension", {}).get(insurance_extension_name)
+                if payment.account.extensions.get("account_extension")
+                and insurance_extension_name in payment.account.extensions.get("account_extension", {})
+                else None
+            )
+
+            if not insurance_company_id_raw:
+                raise ValidationError("Account must have insurance company id when issuer is set on insurance")
+
+            # Convert to int for the API request
+            try:
+                int(insurance_company_id_raw)
+            except (ValueError, TypeError) as e:
+                raise ValidationError(
+                    f"Invalid insurance company id '{insurance_company_id_raw}' - must be a valid integer"
+                ) from e
+
+            # Skip without creating payment in Odoo
+            return None
 
         # Prepare partner data
         partner_data = PartnerData(
