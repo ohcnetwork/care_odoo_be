@@ -39,6 +39,26 @@ class OdooInvoiceResource:
                 rendered_tags_ids.append(str(cached_tag["id"]))
         return rendered_tags_ids
 
+    def has_insurance_tag(self, account_tags: list[int], insurance_tag_external_id: str) -> bool:
+        """
+        Check if any tag in account_tags has an external_id matching insurance_tag_external_id.
+
+        Args:
+            account_tags: List of tag database IDs from the account
+            insurance_tag_external_id: The external_id (UUID) of the insurance tag from settings
+
+        Returns:
+            True if account has the insurance tag, False otherwise
+        """
+        if not insurance_tag_external_id or not account_tags:
+            return False
+
+        for tag_id in account_tags:
+            cached_tag = model_from_cache(TagConfigReadSpec, id=tag_id)
+            if cached_tag and str(cached_tag.get("id")) == insurance_tag_external_id:
+                return True
+        return False
+
     def sync_invoice_to_odoo_api(self, invoice_id: str) -> int | None:
         """
         Synchronize a Django invoice to Odoo using the custom addon API.
@@ -138,6 +158,27 @@ class OdooInvoiceResource:
             in invoice.account.extensions.get("account_extension", {})
             else None
         )
+
+        logger.info("Insurance Company ID: %s", insurance_company_id)
+        logger.info("Invoice Account Tags: %s", invoice.account.tags)
+
+        # Check if account has the insurance tag
+        # Note: CARE_INSURANCE_TAG_ID is an external_id (UUID), account_tags contains database IDs
+        insurance_tag_external_id = plugin_settings.CARE_INSURANCE_TAG_ID
+        account_tags = invoice.account.tags or []
+        has_insurance_tag_flag = self.has_insurance_tag(account_tags, insurance_tag_external_id)
+
+        # Validate that insurance tag and insurance company id are both set or both unset
+        if has_insurance_tag_flag and not insurance_company_id:
+            raise ValidationError(
+                "Account has insurance tag but insurance company is not set. \
+                Should be set together for an Insurance Patient Account."
+            )
+        if insurance_company_id and not has_insurance_tag_flag:
+            raise ValidationError(
+                "Account has insurance company set but insurance tag is not set. \
+                Should be set together for an Insurance Patient Account."
+            )
 
         # Extract encounter and insurance details only if insurance_company_id is set
         doctor = None
