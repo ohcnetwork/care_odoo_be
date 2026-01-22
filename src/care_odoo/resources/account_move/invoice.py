@@ -180,7 +180,18 @@ class OdooInvoiceResource:
                 Should be set together for an Insurance Patient Account."
             )
 
-        # Extract encounter and insurance details only if insurance_company_id is set
+        # Extract encounter from first charge item with same account that has an encounter
+        charge_item_with_encounter = (
+            ChargeItem.objects.filter(account=invoice.account, encounter__isnull=False)
+            .select_related("encounter", "encounter__current_location")
+            .first()
+        )
+        encounter = charge_item_with_encounter.encounter if charge_item_with_encounter else None
+
+        # Get room number from encounter's current location
+        room_number = encounter.current_location.name if encounter and encounter.current_location else None
+
+        # Extract insurance details only if insurance_company_id is set
         doctor = None
         admission_date = None
         discharge_date = None
@@ -190,17 +201,8 @@ class OdooInvoiceResource:
             account_tags = self.render_tags_ids(invoice.account.tags)
             logger.info("Account Tags: %s", account_tags)
 
-            # Extract encounter from first charge item with same account that has an encounter
-            charge_item_with_encounter = (
-                ChargeItem.objects.filter(account=invoice.account, encounter__isnull=False)
-                .select_related("encounter")
-                .first()
-            )
-
-            if not charge_item_with_encounter:
+            if not encounter:
                 raise ValidationError("No encounter found for charge items with this account")
-
-            encounter = charge_item_with_encounter.encounter
 
             # Get doctor name from encounter's care team (first member)
             care_team = encounter.care_team or []
@@ -245,6 +247,7 @@ class OdooInvoiceResource:
             discharge_date=discharge_date,
             x_account=invoice.account.name if invoice.account else None,
             is_refund=getattr(invoice, "is_refund", False),
+            room_number=room_number,
         ).model_dump()
         logger.info("Odoo Invoice Data: %s", data)
 
