@@ -68,7 +68,6 @@ class CreditPaymentData:
 
 
 class OdooPaymentResource:
-<<<<<<< HEAD
     # Extension key for credit payment data
     CREDIT_EXTENSION_KEY = "payment_reconciliation_credit_extension"
 
@@ -117,7 +116,6 @@ class OdooPaymentResource:
         return {
             "payment_method_line_id": payment_method_line_id,
         }
-=======
     def has_insurance_tag(self, account_tags: list[int], insurance_tag_external_id: str) -> bool:
         """
         Check if any tag in account_tags has an external_id matching insurance_tag_external_id.
@@ -137,7 +135,6 @@ class OdooPaymentResource:
             if cached_tag and str(cached_tag.get("id")) == insurance_tag_external_id:
                 return True
         return False
->>>>>>> main
 
     def sync_payment_to_odoo_api(self, payment_id: str) -> int | None:
         """
