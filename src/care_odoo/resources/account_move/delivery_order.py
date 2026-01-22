@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from care.emr.models.supply_delivery import DeliveryOrder, SupplyDelivery
 from care.emr.resources.inventory.supply_delivery.spec import (
@@ -129,6 +130,13 @@ class OdooDeliveryOrderResource:
             return None
 
         # Prepare final data using our spec with vendor bill type
+        delivery_order_extension = (delivery_order.extensions or {}).get("supply_delivery_order_extension", {})
+        vendor_bill_date = delivery_order_extension.get("vendor_bill_date")
+        formatted_bill_date = (
+            datetime.fromisoformat(vendor_bill_date.replace("Z", "+00:00")).strftime("%d-%m-%Y")
+            if vendor_bill_date
+            else None
+        )
         data = AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
@@ -139,6 +147,8 @@ class OdooDeliveryOrderResource:
             reason="",
             x_created_by=delivery_order.updated_by.full_name if delivery_order.updated_by else None,
             payment_reference=(delivery_order.extensions or {}).get("payment_reference", ""),
+            bill_number=delivery_order_extension.get("vendor_bill_number"),
+            bill_date=formatted_bill_date,
         ).model_dump()
 
         logger.info("Odoo Delivery Order Data: %s", data)
