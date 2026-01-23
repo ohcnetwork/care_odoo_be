@@ -146,43 +146,19 @@ class OdooInvoiceResource:
                 None,
             )
         logger.info("Tags: %s", invoice.account.tags)
-        logger.info("Account Extensions: %s", invoice.account.extensions)
-
-        # Get insurance company id first to determine if insurance fields should be included
-        insurance_company_id = (
-            invoice.account.extensions.get("account_extension", {}).get(
-                plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
-            )
-            if invoice.account.extensions.get("account_extension")
-            and plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
-            in invoice.account.extensions.get("account_extension", {})
-            else None
-        )
-
-        logger.info("Insurance Company ID: %s", insurance_company_id)
         logger.info("Invoice Account Tags: %s", invoice.account.tags)
 
         # Check if account has the insurance tag
         # Note: CARE_INSURANCE_TAG_ID is an external_id (UUID), account_tags contains database IDs
         insurance_tag_external_id = plugin_settings.CARE_INSURANCE_TAG_ID
-        account_tags = invoice.account.tags or []
-        has_insurance_tag_flag = self.has_insurance_tag(account_tags, insurance_tag_external_id)
-
-        # Validate that insurance tag and insurance company id are both set or both unset
-        if has_insurance_tag_flag and not insurance_company_id:
-            raise ValidationError(
-                "Account has insurance tag but insurance company is not set. \
-                Should be set together for an Insurance Patient Account."
-            )
-        if insurance_company_id and not has_insurance_tag_flag:
-            raise ValidationError(
-                "Account has insurance company set but insurance tag is not set. \
-                Should be set together for an Insurance Patient Account."
-            )
+        account_tags_list = invoice.account.tags or []
+        has_insurance_tag_flag = self.has_insurance_tag(account_tags_list, insurance_tag_external_id)
 
         # Extract encounter from first charge item with same account that has an encounter
         charge_item_with_encounter = (
-            ChargeItem.objects.filter(account=invoice.account, encounter__isnull=False)
+            ChargeItem.objects.filter(
+                account=invoice.account, encounter__isnull=False, encounter__encounter_class="imp"
+            )
             .select_related("encounter", "encounter__current_location")
             .first()
         )
@@ -191,13 +167,13 @@ class OdooInvoiceResource:
         # Get room number from encounter's current location
         room_number = encounter.current_location.name if encounter and encounter.current_location else None
 
-        # Extract insurance details only if insurance_company_id is set
+        # Extract insurance details only if account has insurance tag
         doctor = None
         admission_date = None
         discharge_date = None
         account_tags = None
 
-        if insurance_company_id:
+        if has_insurance_tag_flag:
             account_tags = self.render_tags_ids(invoice.account.tags)
             logger.info("Account Tags: %s", account_tags)
 
@@ -238,7 +214,6 @@ class OdooInvoiceResource:
             bill_type=BillType.customer,
             due_date=invoice.created_date.strftime("%d-%m-%Y"),
             reason="",
-            insurance_company_id=insurance_company_id,
             x_created_by=invoice.updated_by.full_name if invoice.updated_by else None,
             x_identifier=x_identifier,
             insurance_tag=account_tags,

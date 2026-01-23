@@ -66,39 +66,6 @@ class SupplyDeliveryOrderExtension(PlugExtension):
 ExtensionRegistry.register(SupplyDeliveryOrderExtension())
 
 
-class AccountExtension(PlugExtension):
-    extension_name = "account_extension"
-    extension_version = "1.0.0"
-    resource_type = ExtensionResource.account
-    write_schema = {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "Autocomplete Test Schema",
-        "description": "Example schema demonstrating autocomplete field usage",
-        "type": "object",
-        "properties": {
-            "insurance_company": {
-                "type": "string",
-                "title": "Insurance Company",
-                "description": "Select an insurance company to be mapped to the account",
-                "x-ui": {
-                    "control": "autocomplete",
-                    "metadata": {
-                        "url": "/api/care_odoo/insurance-company",
-                        "searchParam": "search_key",
-                        "valueField": "id",
-                        "labelField": "name",
-                        "sendToken": "true",
-                    },
-                },
-            },
-        },
-        "additionalProperties": "false",
-    }
-
-
-ExtensionRegistry.register(AccountExtension())
-
-
 class PaymentReconciliationExtension(PlugExtension):
     """
     Extension for PaymentReconciliation to support Credit (Care of Account) payments.

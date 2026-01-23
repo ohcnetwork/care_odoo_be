@@ -108,14 +108,13 @@ class OdooPaymentResource:
         try:
             payment_method_line_id = int(payment_method_line_id)
         except (ValueError, TypeError):
-            logger.warning(
-                f"Invalid payment_method_line_id in credit extension: {payment_method_line_id}"
-            )
+            logger.warning(f"Invalid payment_method_line_id in credit extension: {payment_method_line_id}")
             return None
 
         return {
             "payment_method_line_id": payment_method_line_id,
         }
+
     def has_insurance_tag(self, account_tags: list[int], insurance_tag_external_id: str) -> bool:
         """
         Check if any tag in account_tags has an external_id matching insurance_tag_external_id.
@@ -169,12 +168,6 @@ class OdooPaymentResource:
         if payment.issuer_type == "insurer":
             # Validate insurance configuration
             insurance_tag_id = plugin_settings.CARE_INSURANCE_TAG_ID
-            insurance_extension_name = plugin_settings.CARE_ODOO_INSURANCE_EXTENSION_NAME
-
-            if not insurance_extension_name:
-                raise ValidationError(
-                    "CARE_ODOO_INSURANCE_EXTENSION_NAME must be configured when issuer is set on payment"
-                )
 
             if not insurance_tag_id:
                 raise ValidationError("CARE_INSURANCE_TAG_ID must be configured when issuer is set on payment")
@@ -186,25 +179,6 @@ class OdooPaymentResource:
 
             if not has_insurance_tag_flag:
                 raise ValidationError("Account must have insurance tag for insurance payments")
-
-            # Get insurance company id from account extensions
-            insurance_company_id_raw = (
-                payment.account.extensions.get("account_extension", {}).get(insurance_extension_name)
-                if payment.account.extensions.get("account_extension")
-                and insurance_extension_name in payment.account.extensions.get("account_extension", {})
-                else None
-            )
-
-            if not insurance_company_id_raw:
-                raise ValidationError("Account must have insurance company id when issuer is set on insurance")
-
-            # Convert to int for the API request
-            try:
-                int(insurance_company_id_raw)
-            except (ValueError, TypeError) as e:
-                raise ValidationError(
-                    f"Invalid insurance company id '{insurance_company_id_raw}' - must be a valid integer"
-                ) from e
 
             # Skip without creating payment in Odoo
             return None
