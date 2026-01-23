@@ -123,6 +123,21 @@ class PaymentReconciliationExtension(PlugExtension):
                 "default": False,
                 "x-ui": {"control": "checkbox"},
             },
+            "payment_method_line_id": {
+                "type": "string",
+                "title": "Credit Source",
+                "description": "Select the charity/sponsor/fund paying on behalf of the patient",
+                "x-ui": {
+                    "control": "autocomplete",
+                    "metadata": {
+                        "url": "/api/care_odoo/payment-method-line",
+                        "searchParam": "search",
+                        "valueField": "id",
+                        "labelField": "name",
+                        "sendToken": "true",
+                    },
+                },
+            },
         },
         "if": {
             "properties": {
@@ -131,23 +146,6 @@ class PaymentReconciliationExtension(PlugExtension):
         },
         "then": {
             "required": ["payment_method_line_id"],
-            "properties": {
-                "payment_method_line_id": {
-                    "type": "string",
-                    "title": "Credit Source",
-                    "description": "Select the charity/sponsor/fund paying on behalf of the patient",
-                    "x-ui": {
-                        "control": "autocomplete",
-                        "metadata": {
-                            "url": "/api/care_odoo/payment-method-line",
-                            "searchParam": "search",
-                            "valueField": "id",
-                            "labelField": "name",
-                            "sendToken": "true",
-                        },
-                    },
-                },
-            },
         },
         "additionalProperties": False,
     }
