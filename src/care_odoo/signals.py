@@ -83,9 +83,6 @@ def save_fields_before_update(sender, instance, raw, using, update_fields, **kwa
     if instance.status in [
         InvoiceStatusOptions.issued.value,
     ]:
-        odoo_integration = OdooInvoiceResource()
-        odoo_integration.sync_invoice_to_odoo_api(instance.external_id)
-
         # Schedule cleanup task to verify invoice exists after transaction completes
         # The task runs after a delay to give the transaction time to commit or rollback
         # If the transaction rolled back, this task will clean up the orphaned Odoo invoice
@@ -99,6 +96,8 @@ def save_fields_before_update(sender, instance, raw, using, update_fields, **kwa
             args=[str(instance.external_id)],
             countdown=cleanup_delay,
         )
+        odoo_integration = OdooInvoiceResource()
+        odoo_integration.sync_invoice_to_odoo_api(instance.external_id)
     elif instance.status in INVOICE_CANCELLED_STATUS and instance._previous_status in [
         InvoiceStatusOptions.issued.value,
         InvoiceStatusOptions.balanced.value,
@@ -122,9 +121,6 @@ def sync_payment_to_odoo(sender, instance, created, **kwargs):
         return
 
     if instance.status == PaymentReconciliationStatusOptions.active.value:
-        odoo_payment = OdooPaymentResource()
-        odoo_payment.sync_payment_to_odoo_api(instance.external_id)
-
         # Schedule cleanup task to verify payment exists after transaction completes
         # The task runs after a delay to give the transaction time to commit or rollback
         # If the transaction rolled back, this task will clean up the orphaned Odoo payment
@@ -138,6 +134,9 @@ def sync_payment_to_odoo(sender, instance, created, **kwargs):
             args=[str(instance.external_id)],
             countdown=cleanup_delay,
         )
+
+        odoo_payment = OdooPaymentResource()
+        odoo_payment.sync_payment_to_odoo_api(instance.external_id)
     elif instance.status in [
         PaymentReconciliationStatusOptions.cancelled.value,
         PaymentReconciliationStatusOptions.entered_in_error.value,
