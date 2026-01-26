@@ -154,15 +154,20 @@ class OdooInvoiceResource:
         account_tags_list = invoice.account.tags or []
         has_insurance_tag_flag = self.has_insurance_tag(account_tags_list, insurance_tag_external_id)
 
-        # Extract encounter from first charge item with same account that has an encounter
-        charge_item_with_encounter = (
-            ChargeItem.objects.filter(
-                account=invoice.account, encounter__isnull=False, encounter__encounter_class="imp"
+        # Extract encounter - first try primary_encounter from account, then fall back to charge items
+        encounter = None
+        if invoice.account and getattr(invoice.account, "primary_encounter", None):
+            encounter = invoice.account.primary_encounter
+        else:
+            # Fallback: get encounter from first charge item with same account that has an encounter
+            charge_item_with_encounter = (
+                ChargeItem.objects.filter(
+                    account=invoice.account, encounter__isnull=False, encounter__encounter_class="imp"
+                )
+                .select_related("encounter", "encounter__current_location")
+                .first()
             )
-            .select_related("encounter", "encounter__current_location")
-            .first()
-        )
-        encounter = charge_item_with_encounter.encounter if charge_item_with_encounter else None
+            encounter = charge_item_with_encounter.encounter if charge_item_with_encounter else None
 
         # Get room number from encounter's current location
         room_number = encounter.current_location.name if encounter and encounter.current_location else None
