@@ -50,13 +50,15 @@ def sync_user_to_odoo(sender, instance, created, **kwargs):
 @receiver(pre_save, sender=Invoice)
 def capture_previous_status(sender, instance, **kwargs):
     """
-    Capture the previous status value before save to access it in post_save signal.
+    Capture the previous status and locked values before save to access them in post_save signal.
     """
     if instance.pk:
         old_instance = Invoice.objects.get(pk=instance.pk)
         instance._previous_status = old_instance.status
+        instance._previous_locked = old_instance.locked
     else:
         instance._previous_status = None
+        instance._previous_locked = None
 
 
 @receiver(post_save, sender=Invoice)
@@ -71,6 +73,10 @@ def save_fields_before_update(sender, instance, raw, using, update_fields, **kwa
     """
     # Skip sync if only 'number' field is being updated
     if update_fields and update_fields == {"number"}:
+        return
+
+    # Skip sync if locked field changed (lock/unlock action)
+    if instance._previous_locked is not None and instance.locked != instance._previous_locked:
         return
 
     # Skip sync if the record is being soft-deleted
