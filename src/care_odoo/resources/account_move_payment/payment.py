@@ -19,6 +19,7 @@ from care_odoo.resources.account_move_payment.spec import (
     PaymentMode,
 )
 from care_odoo.resources.res_partner.spec import PartnerData, PartnerType
+from care_odoo.resources.utils import format_datetime_to_local_date
 from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
@@ -210,7 +211,7 @@ class OdooPaymentResource:
             journal_input=journal_type,
             payment_method_line_id=payment_method_line_id,
             bank_reference=payment.reference_number,
-            payment_date=payment.payment_datetime.strftime("%Y-%m-%d"),
+            payment_date=format_datetime_to_local_date(payment.payment_datetime),
             payment_mode=PaymentMode.send if payment.is_credit_note else PaymentMode.receive,
             partner_data=partner_data,
             customer_type=CustomerType.customer,

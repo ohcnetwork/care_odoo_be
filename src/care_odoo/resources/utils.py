@@ -2,9 +2,11 @@
 Utility functions for extracting price components from charge items and charge item definitions.
 """
 
+from datetime import datetime
 from typing import Any
 
 from care.emr.models.charge_item import ChargeItem
+from django.utils import timezone
 from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.resources.common.monetary_component import MonetaryComponentType
 from rest_framework.exceptions import ValidationError
@@ -303,3 +305,21 @@ def format_name(user, hide_prefix_suffix: bool = False) -> str:
     # Fall back to username
     username = getattr(user, "username", None)
     return username if username else "-"
+
+
+def format_datetime_to_local_date(dt: datetime) -> str:
+    """
+    Convert a datetime to local timezone and format as date string.
+
+    Django stores datetimes in UTC. This function converts the datetime
+    to the local timezone (as configured in Django settings) before
+    extracting the date, ensuring the correct date is used.
+
+    Args:
+        dt: A datetime object (typically stored in UTC)
+
+    Returns:
+        Date string in YYYY-MM-DD format in local timezone
+    """
+    local_dt = timezone.localtime(dt)
+    return local_dt.strftime("%Y-%m-%d")
