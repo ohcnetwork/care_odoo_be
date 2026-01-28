@@ -31,7 +31,7 @@ PAYMENT_METHOD_TO_JOURNAL_TYPE: dict[str, JournalType] = {
     PaymentReconciliationPaymentMethodOptions.cdac.value: JournalType.bank,  # Checking/debit account
     PaymentReconciliationPaymentMethodOptions.chck.value: JournalType.bank,  # Check
     PaymentReconciliationPaymentMethodOptions.ddpo.value: JournalType.bank,  # Direct deposit/payment order
-    PaymentReconciliationPaymentMethodOptions.debc.value: JournalType.bank,  # Debit card
+    PaymentReconciliationPaymentMethodOptions.debc.value: JournalType.debit,  # Debit card
 }
 
 

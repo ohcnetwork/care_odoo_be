@@ -8,8 +8,9 @@ from care_odoo.resources.res_partner.spec import PartnerData
 
 class JournalType(str, Enum):
     cash = "cash"
-    bank = "bank"
+    bank = "bank"  # UPI
     card = "card"
+    debit = "debit"  # Debit card
     credit = "credit"  # Care of Accounts (charity/sponsor payments)
 
 
