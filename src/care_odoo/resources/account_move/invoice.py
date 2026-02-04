@@ -214,10 +214,10 @@ class OdooInvoiceResource:
         data = AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
-            invoice_date=invoice.created_date.strftime("%d-%m-%Y"),
+            invoice_date=invoice.issue_date.strftime("%d-%m-%Y"),
             x_care_id=str(invoice.external_id),
             bill_type=BillType.customer,
-            due_date=invoice.created_date.strftime("%d-%m-%Y"),
+            due_date=invoice.issue_date.strftime("%d-%m-%Y"),
             reason="",
             x_created_by=invoice.updated_by.full_name if invoice.updated_by else None,
             x_identifier=x_identifier,
