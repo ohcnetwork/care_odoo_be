@@ -64,6 +64,7 @@ class AccountMoveApiRequest(BaseModel):
     bill_number: str | None = None
     bill_date: str | None = None
     room_number: str | None = None
+    ip_bill_no: str | None = None
 
 
 # TODO: Remove unused fields after Connector is updated

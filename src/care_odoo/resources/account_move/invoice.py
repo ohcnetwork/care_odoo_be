@@ -228,6 +228,7 @@ class OdooInvoiceResource:
             x_account=invoice.account.name if invoice.account else None,
             is_refund=getattr(invoice, "is_refund", False),
             room_number=room_number,
+            ip_bill_no=str(invoice.account.id) if invoice.account else None,
         ).model_dump()
         logger.info("Odoo Invoice Data: %s", data)
 
