@@ -68,7 +68,11 @@ class OdooDeliveryOrderResource:
                 product = supply_delivery.supplied_item
                 charge_item_def = product.charge_item_definition
                 base_price = get_base_price_from_definition(charge_item_def)
-                purchase_price = get_purchase_price_from_definition(charge_item_def)
+                quantity = supply_delivery.supplied_item_pack_quantity or supply_delivery.supplied_item_quantity or 0
+                
+                total_purchase_price = supply_delivery.total_purchase_price or 0
+                pack_purchase_price = total_purchase_price / quantity if quantity > 0 else 0
+                item_purchase_price = supply_delivery.supplied_item.purchase_price or 0
 
                 # Get category data if charge item definition exists
                 if product.charge_item_definition and product.charge_item_definition.category:
@@ -99,7 +103,7 @@ class OdooDeliveryOrderResource:
                     product_name=f"{product.charge_item_definition.title}",
                     x_care_id=str(product.charge_item_definition.external_id),
                     mrp=float(base_price),
-                    cost=float(purchase_price),
+                    cost=float(item_purchase_price),
                     category=category_data,
                     status=product.charge_item_definition.status,
                     hsn=product.product_knowledge.alternate_identifier
@@ -111,13 +115,13 @@ class OdooDeliveryOrderResource:
                 item = InvoiceItem(
                     product_data=product_data,
                     quantity=str(
-                        supply_delivery.supplied_item_pack_quantity or supply_delivery.supplied_item_quantity or 0
+                        quantity
                     ),
                     free_qty=str(
                         ((supply_delivery.extensions or {}).get("supply_delivery_extension") or {}).get("free_quantity")
                         or 0
                     ),
-                    sale_price=str(purchase_price),
+                    sale_price=str(pack_purchase_price),
                     x_care_id=str(supply_delivery.external_id),
                 )
 
