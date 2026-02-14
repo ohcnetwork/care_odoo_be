@@ -71,7 +71,6 @@ class OdooDeliveryOrderResource:
                 quantity = supply_delivery.supplied_item_pack_quantity or supply_delivery.supplied_item_quantity or 0
                 
                 total_purchase_price = supply_delivery.total_purchase_price or 0
-                pack_purchase_price = total_purchase_price / quantity if quantity > 0 else 0
                 item_purchase_price = supply_delivery.supplied_item.purchase_price or 0
 
                 # Get category data if charge item definition exists
@@ -121,7 +120,7 @@ class OdooDeliveryOrderResource:
                         ((supply_delivery.extensions or {}).get("supply_delivery_extension") or {}).get("free_quantity")
                         or 0
                     ),
-                    sale_price=str(pack_purchase_price),
+                    sale_price=str(total_purchase_price),
                     x_care_id=str(supply_delivery.external_id),
                 )
 
