@@ -109,6 +109,7 @@ DEFAULTS = {
     # This gives the transaction time to commit or rollback before checking
     "CARE_ODOO_CLEANUP_DELAY_SECONDS": 30,
     "CARE_INSURANCE_TAG_ID": "",
+    "CARE_ODOO_INTERNAL_SUPPLIER_ID": "",
 }
 
 # Required settings for production

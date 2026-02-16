@@ -20,6 +20,7 @@ from care_odoo.resources.utils import (
     get_purchase_price_from_definition,
     get_taxes_from_definition,
 )
+from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,15 @@ class OdooDeliveryOrderResource:
         delivery_order = DeliveryOrder.objects.select_related("supplier", "destination", "destination__facility").get(
             external_id=delivery_order_id
         )
+
+        internal_supplier_id = plugin_settings.CARE_ODOO_INTERNAL_SUPPLIER_ID
+        if str(delivery_order.supplier.external_id) in internal_supplier_id:
+            logger.info(
+                "Skipping Odoo sync for delivery order %s: supplier %s is excluded",
+                delivery_order_id,
+                delivery_order.supplier.external_id,
+            )
+            return None
 
         # Prepare partner data for supplier
         supplier_metadata = delivery_order.supplier.metadata or {}
@@ -69,7 +79,9 @@ class OdooDeliveryOrderResource:
                 charge_item_def = product.charge_item_definition
                 base_price = get_base_price_from_definition(charge_item_def)
                 quantity = supply_delivery.supplied_item_pack_quantity or supply_delivery.supplied_item_quantity or 0
-                
+
+                logging.info(supply_delivery)
+
                 total_purchase_price = supply_delivery.total_purchase_price or 0
                 item_purchase_price = supply_delivery.supplied_item.purchase_price or 0
 
