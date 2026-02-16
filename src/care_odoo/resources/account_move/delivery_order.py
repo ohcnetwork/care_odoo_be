@@ -80,8 +80,6 @@ class OdooDeliveryOrderResource:
                 base_price = get_base_price_from_definition(charge_item_def)
                 quantity = supply_delivery.supplied_item_pack_quantity or supply_delivery.supplied_item_quantity or 0
 
-                logging.info(supply_delivery)
-
                 total_purchase_price = supply_delivery.total_purchase_price or 0
                 item_purchase_price = supply_delivery.supplied_item.purchase_price or 0
 
