@@ -1,5 +1,7 @@
 import logging
-from datetime import datetime
+
+from django.utils.dateparse import parse_datetime
+from django.utils.timezone import localtime
 
 from care.emr.models.supply_delivery import DeliveryOrder, SupplyDelivery
 from care.emr.resources.inventory.supply_delivery.spec import (
@@ -145,11 +147,8 @@ class OdooDeliveryOrderResource:
         # Prepare final data using our spec with vendor bill type
         delivery_order_extension = (delivery_order.extensions or {}).get("supply_delivery_order_extension", {})
         vendor_bill_date = delivery_order_extension.get("vendor_bill_date")
-        formatted_bill_date = (
-            datetime.fromisoformat(vendor_bill_date.replace("Z", "+00:00")).strftime("%d-%m-%Y")
-            if vendor_bill_date
-            else None
-        )
+        parsed_bill_date = parse_datetime(vendor_bill_date) if vendor_bill_date else None
+        formatted_bill_date = localtime(parsed_bill_date).strftime("%d-%m-%Y") if parsed_bill_date else None
         data = AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
