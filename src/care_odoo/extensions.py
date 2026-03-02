@@ -1,6 +1,8 @@
 from care.emr.extensions.base import PlugExtension, ExtensionResource
 from care.emr.registries.extensions.registry import ExtensionRegistry
 
+from care.emr.models import SupplyDelivery
+
 
 class SupplyDeliveryExtension(PlugExtension):
     extension_name = "supply_delivery_extension"
@@ -61,7 +63,54 @@ class SupplyDeliveryOrderExtension(PlugExtension):
         },
         "additionalProperties": "false",
     }
+    retrieve_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Purchase Delivery Details",
+        "type": "object",
+        "x-ui": {"control": "grid"},
+        "properties": {
+            "vendor_bill_number": {"type": "string", "title": "Vendor Bill Number", "x-ui": {"control": "textbox"}},
+            "vendor_bill_date": {
+                "type": "string",
+                "format": "date",
+                "title": "Vendor Bill Date",
+                "x-ui": {"control": "date"},
+            },
+            "total_discount": {
+                "type": "number",
+                "minimum": 0.00,
+                "default": 0.00,
+                "title": "Total Discount",
+                "x-ui": {"control": "textbox"},
+            },
+            "total_price": {
+                "type": "number",
+                "minimum": 0.00,
+                "default": 0.00,
+                "title": "Total Price",
+            },
+        },
+        "additionalProperties": "false",
+    }
 
+    @staticmethod
+    def _compute_total_price(data, resource):
+        from decimal import Decimal
+
+        total_price = Decimal("0")
+        for item in SupplyDelivery.objects.filter(order=resource, status__in=["in_progress", "completed"]):
+            pack_qty = Decimal(str(item.supplied_item_pack_quantity or 0))
+            free_qty = Decimal(str(item.extensions.get("supply_delivery_extension", {}).get("free_quantity", 0)))
+            unit_price = Decimal(str(item.total_purchase_price or 0))
+            total_price += Decimal((pack_qty - free_qty) * unit_price)
+        data["total_price"] = str(Decimal(total_price))
+        return data
+
+    def deserialize_extensions_list(self, data, resource):
+        return data
+
+    def deserialize_extensions_retrieve(self, data, resource):
+        return self._compute_total_price(data, resource)
 
 ExtensionRegistry.register(SupplyDeliveryOrderExtension())
 
