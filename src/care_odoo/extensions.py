@@ -2,6 +2,7 @@ from care.emr.extensions.base import PlugExtension, ExtensionResource
 from care.emr.registries.extensions.registry import ExtensionRegistry
 
 from care.emr.models import SupplyDelivery
+from care.utils.rounding.rounding import care_round
 
 
 class SupplyDeliveryExtension(PlugExtension):
@@ -103,7 +104,7 @@ class SupplyDeliveryOrderExtension(PlugExtension):
             free_qty = Decimal(str(item.extensions.get("supply_delivery_extension", {}).get("free_quantity", 0)))
             unit_price = Decimal(str(item.total_purchase_price or 0))
             total_price += Decimal((pack_qty - free_qty) * unit_price)
-        data["total_price"] = str(Decimal(total_price))
+        data["total_price"] = str(care_round(Decimal(total_price), precision=2))
         return data
 
     def deserialize_extensions_list(self, data, resource):
