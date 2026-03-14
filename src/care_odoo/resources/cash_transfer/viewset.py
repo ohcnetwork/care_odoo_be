@@ -2,7 +2,7 @@ import logging
 
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from care.emr.models import FacilityLocation
@@ -132,6 +132,8 @@ class CashTransferViewSet(EMRBaseViewSet):
                 {"success": True, "transfers": serialized_transfers},
                 status=status.HTTP_200_OK,
             )
+        except APIException:
+            raise
         except Exception as e:
             logger.exception("Error listing cash transfers: %s", str(e))
             raise ValidationError(f"Error listing cash transfers: {str(e)}") from e
@@ -188,7 +190,7 @@ class CashTransferViewSet(EMRBaseViewSet):
                 },
                 status=status.HTTP_201_CREATED,
             )
-        except ValidationError:
+        except APIException:
             raise
         except Exception as e:
             logger.exception("Error creating cash transfer: %s", str(e))
@@ -250,7 +252,7 @@ class CashTransferViewSet(EMRBaseViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
-        except ValidationError:
+        except APIException:
             raise
         except Exception as e:
             logger.exception("Error accepting cash transfer: %s", str(e))
@@ -314,7 +316,7 @@ class CashTransferViewSet(EMRBaseViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
-        except ValidationError:
+        except APIException:
             raise
         except Exception as e:
             logger.exception("Error rejecting cash transfer: %s", str(e))
@@ -374,7 +376,7 @@ class CashTransferViewSet(EMRBaseViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
-        except ValidationError:
+        except APIException:
             raise
         except Exception as e:
             logger.exception("Error cancelling cash transfer: %s", str(e))
@@ -423,6 +425,8 @@ class CashTransferViewSet(EMRBaseViewSet):
                 {"success": True, "transfers": serialized_transfers},
                 status=status.HTTP_200_OK,
             )
+        except APIException:
+            raise
         except Exception as e:
             logger.exception("Error getting pending transfers: %s", str(e))
             raise ValidationError(f"Error getting pending transfers: {str(e)}") from e
