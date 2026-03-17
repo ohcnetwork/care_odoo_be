@@ -71,6 +71,19 @@ class OdooInvoiceResource:
         """
         invoice = Invoice.objects.select_related("facility", "patient").get(external_id=invoice_id)
 
+        # Extract patient identifier if configured
+        patient_official_identifier_id = plugin_settings.CARE_PATIENT_OFFICIAL_IDENTIFIER
+        x_identifier = None
+        if patient_official_identifier_id:
+            x_identifier = next(
+                (
+                    identifier["value"]
+                    for identifier in invoice.patient.instance_identifiers
+                    if identifier["config"] in patient_official_identifier_id
+                ),
+                None,
+            )
+
         # Prepare partner data
         partner_data = PartnerData(
             name=invoice.patient.name,
@@ -83,6 +96,7 @@ class OdooInvoiceResource:
             gender=invoice.patient.gender if invoice.patient.gender else None,
             birthdate=invoice.patient.date_of_birth.strftime("%d-%m-%Y") if invoice.patient.date_of_birth else None,
             street=invoice.patient.address if invoice.patient.address else None,
+            ref=x_identifier,
         )
 
         # Prepare invoice items
@@ -135,16 +149,6 @@ class OdooInvoiceResource:
                 if requester:
                     item.agent_id = str(requester.external_id)
                 invoice_items.append(item)
-        patient_official_identifier_id = plugin_settings.CARE_PATIENT_OFFICIAL_IDENTIFIER
-        if patient_official_identifier_id:
-            x_identifier = next(
-                (
-                    identifier["value"]
-                    for identifier in invoice.patient.instance_identifiers
-                    if identifier["config"] in patient_official_identifier_id
-                ),
-                None,
-            )
         logger.info("Tags: %s", invoice.account.tags)
         logger.info("Invoice Account Tags: %s", invoice.account.tags)
 

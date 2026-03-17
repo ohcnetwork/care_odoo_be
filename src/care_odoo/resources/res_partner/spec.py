@@ -27,3 +27,4 @@ class PartnerData(BaseModel):
     gender: str | None = None
     birthdate: str | None = None
     street: str | None = None
+    ref: str | None = None
