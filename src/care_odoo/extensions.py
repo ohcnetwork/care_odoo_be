@@ -57,8 +57,8 @@ def calculate_amount(component, quantity, base):
 
     if component.get("amount"):
         return care_round(convert_to_decimal(component.get("amount")) * quantity)
-    if component.factor:
-        return care_round(base * convert_to_decimal(component.factor) / 100)
+    if component.get("factor"):
+        return care_round(base * convert_to_decimal(component.get("factor")) / 100)
     return 0
 
 
