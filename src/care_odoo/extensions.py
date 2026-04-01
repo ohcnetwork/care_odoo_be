@@ -37,6 +37,31 @@ class SupplyDeliveryExtension(PlugExtension):
 ExtensionRegistry.register(SupplyDeliveryExtension())
 
 
+def compute_charge_item_components(charge_item_definition):
+    from care.emr.models.resource_category import merge_monetary_components
+    from care.emr.resources.charge_item.apply_charge_item_definition import compute_global_components
+
+    price_components = charge_item_definition.price_components
+    if charge_item_definition.category:
+        price_components = merge_monetary_components(
+            charge_item_definition.category.calculated_monetary_components,
+            price_components,
+        )
+    price_components = compute_global_components(
+        charge_item_definition, price_components
+    )
+    return price_components
+
+def calculate_amount(component, quantity, base):
+    from care.utils.rounding.covert_type import convert_to_decimal
+
+    if component.get("amount"):
+        return care_round(convert_to_decimal(component.get("amount")) * quantity)
+    if component.factor:
+        return care_round(base * convert_to_decimal(component.factor) / 100)
+    return 0
+
+
 class SupplyDeliveryOrderExtension(PlugExtension):
     extension_name = "supply_delivery_order_extension"
     extension_version = "1.0.0"
@@ -102,8 +127,18 @@ class SupplyDeliveryOrderExtension(PlugExtension):
         for item in SupplyDelivery.objects.filter(order=resource, status__in=["in_progress", "completed"]):
             pack_qty = Decimal(str(item.supplied_item_pack_quantity or 0))
             free_qty = Decimal(str(item.extensions.get("supply_delivery_extension", {}).get("free_quantity", 0)))
-            unit_price = Decimal(str(item.total_purchase_price or 0))
-            total_price += Decimal((pack_qty - free_qty) * unit_price)
+            unit_pack_price = Decimal(str(item.total_purchase_price or 0))
+            if not item.supplied_item.standard_pack_size:
+                continue
+            unit_price = unit_pack_price / Decimal(str(item.supplied_item.standard_pack_size or 0))
+            tax = Decimal("0")
+            if not item.supplied_item.charge_item_definition:
+                continue
+            for component in compute_charge_item_components(item.supplied_item.charge_item_definition.price_components):
+                if component.get("monetary_component_type", "") == "tax":
+                    tax += calculate_amount(component, 1 , unit_price)
+            total_tax = tax * item.supplied_item.standard_pack_size * (pack_qty - free_qty)
+            total_price += Decimal((pack_qty - free_qty) * unit_pack_price) + total_tax
         data["total_price"] = str(care_round(Decimal(total_price), precision=2))
         return data
 
