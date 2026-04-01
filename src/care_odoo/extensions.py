@@ -134,7 +134,7 @@ class SupplyDeliveryOrderExtension(PlugExtension):
             tax = Decimal("0")
             if not item.supplied_item.charge_item_definition:
                 continue
-            for component in compute_charge_item_components(item.supplied_item.charge_item_definition.price_components):
+            for component in compute_charge_item_components(item.supplied_item.charge_item_definition):
                 if component.get("monetary_component_type", "") == "tax":
                     tax += calculate_amount(component, 1 , unit_price)
             total_tax = tax * item.supplied_item.standard_pack_size * (pack_qty - free_qty)
