@@ -56,9 +56,9 @@ def calculate_amount(component, quantity, base):
     from care.utils.rounding.covert_type import convert_to_decimal
 
     if component.get("amount"):
-        return care_round(convert_to_decimal(component.get("amount")) * quantity)
+        return convert_to_decimal(component.get("amount")) * quantity
     if component.get("factor"):
-        return care_round(base * convert_to_decimal(component.get("factor")) / 100)
+        return base * convert_to_decimal(component.get("factor")) / 100
     return 0
 
 
