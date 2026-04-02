@@ -128,7 +128,7 @@ class SupplyDeliveryOrderExtension(PlugExtension):
             pack_qty = Decimal(str(item.supplied_item_pack_quantity or 0))
             free_qty = Decimal(str(item.extensions.get("supply_delivery_extension", {}).get("free_quantity", 0)))
             unit_pack_price = Decimal(str(item.total_purchase_price or 0))
-            if not item.supplied_item.standard_pack_size:
+            if not item.supplied_item or not item.supplied_item.standard_pack_size:
                 continue
             unit_price = unit_pack_price / Decimal(str(item.supplied_item.standard_pack_size or 0))
             tax = Decimal("0")
