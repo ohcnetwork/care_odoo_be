@@ -128,16 +128,22 @@ class SupplyDeliveryOrderExtension(PlugExtension):
             pack_qty = Decimal(str(item.supplied_item_pack_quantity or 0))
             free_qty = Decimal(str(item.extensions.get("supply_delivery_extension", {}).get("free_quantity", 0)))
             unit_pack_price = Decimal(str(item.total_purchase_price or 0))
-            if not item.supplied_item or not item.supplied_item.standard_pack_size:
+            if not item.supplied_item:
                 continue
-            unit_price = unit_pack_price / Decimal(str(item.supplied_item.standard_pack_size or 0))
+            standard_pack_size = (
+                item.supplied_item.standard_pack_size if item.supplied_item.standard_pack_size
+                else item.supplied_item_pack_size
+            )
+            if not standard_pack_size:
+                continue
+            unit_price = unit_pack_price / Decimal(str(standard_pack_size))
             tax = Decimal("0")
             if not item.supplied_item.charge_item_definition:
                 continue
             for component in compute_charge_item_components(item.supplied_item.charge_item_definition):
                 if component.get("monetary_component_type", "") == "tax":
                     tax += calculate_amount(component, 1 , unit_price)
-            total_tax = tax * item.supplied_item.standard_pack_size * (pack_qty - free_qty)
+            total_tax = tax * standard_pack_size * (pack_qty - free_qty)
             total_price += Decimal((pack_qty - free_qty) * unit_pack_price) + total_tax
         data["total_price"] = str(care_round(Decimal(total_price), precision=2))
         return data
