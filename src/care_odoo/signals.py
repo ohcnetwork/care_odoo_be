@@ -20,6 +20,7 @@ from care.emr.resources.invoice.spec import (
 from care.emr.resources.organization.spec import OrganizationTypeChoices
 from care.emr.resources.payment_reconciliation.spec import (
     PaymentReconciliationStatusOptions,
+    PaymentReconciliationTypeOptions,
 )
 from care.emr.resources.resource_category.spec import (
     ResourceCategoryResourceTypeOptions,
@@ -123,7 +124,7 @@ def sync_payment_to_odoo(sender, instance, created, **kwargs):
     orphaned payment in Odoo.
     """
     # Skip sync if the record is being soft-deleted
-    if instance.deleted:
+    if instance.deleted or instance.reconciliation_type == PaymentReconciliationTypeOptions.adjustment.value:
         return
 
     if instance.status == PaymentReconciliationStatusOptions.active.value:
