@@ -145,7 +145,7 @@ class SupplyDeliveryOrderExtension(PlugExtension):
                     tax += calculate_amount(component, 1 , unit_price)
             total_tax = tax * standard_pack_size * (pack_qty - free_qty)
             total_price += Decimal((pack_qty - free_qty) * unit_pack_price) + total_tax
-        data["total_price"] = str(care_round(Decimal(total_price), precision=2))
+        data["total_price"] = str(care_round(Decimal(total_price), precision=0))
         return data
 
     def deserialize_extensions_list(self, data, resource):
