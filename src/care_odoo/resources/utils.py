@@ -231,9 +231,6 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
     if not unit_discounts:
         return None
 
-    if len(unit_discounts) > 1:
-        raise ValidationError(f"More than 1 discount per item is not allowed. Found {len(unit_discounts)} discounts.")
-
     discounts = []
     for unit_discount in unit_discounts:
         code = unit_discount.get("code", {})
