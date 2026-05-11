@@ -171,13 +171,13 @@ class PaymentReconciliationExtension(PlugExtension):
     write_schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Credit Payment Details",
-        "description": "Extension for Care of Account (credit) payments. Note: Credit payments cannot be used for refunds.",
+        "description": "Extension for Care of Account (credit) payments.",
         "type": "object",
         "properties": {
             "is_credit": {
                 "type": "boolean",
                 "title": "Is this a Credit payment?",
-                "description": "Check if this payment is made by a charity, sponsor, or fund on behalf of the patient. Cannot be used for refunds.",
+                "description": "Check if this payment is made by a charity, sponsor, or fund on behalf of the patient.",
                 "default": False,
                 "x-ui": {"control": "checkbox"},
             },
