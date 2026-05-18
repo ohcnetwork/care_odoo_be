@@ -94,13 +94,6 @@ class OdooPaymentResource:
         if not is_credit:
             return None
 
-        # Validate: Credit payments cannot be used for refunds
-        if payment.is_credit_note:
-            raise ValueError(
-                "Credit payments (Care of Account) cannot be used for refunds. "
-                "Refunds must use the original payment method (cash, card, bank)."
-            )
-
         payment_method_line_id = credit_ext.get("payment_method_line_id")
         if not payment_method_line_id:
             return None
