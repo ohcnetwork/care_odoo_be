@@ -19,6 +19,7 @@ from care_odoo.resources.product_category.spec import CategoryData
 from care_odoo.resources.product_product.spec import ProductData, TaxData
 from care_odoo.resources.res_partner.spec import PartnerData, PartnerType
 from care_odoo.resources.utils import (
+    format_datetime_to_local_date,
     get_all_discounts,
     get_base_price_from_charge_item,
     get_purchase_price_from_charge_item,
@@ -207,21 +208,21 @@ class OdooInvoiceResource:
                 if isinstance(start_date, str):
                     start_date = parse_datetime(start_date)
                 if start_date:
-                    admission_date = start_date.strftime("%d-%m-%Y %H:%M:%S")
+                    admission_date = format_datetime_to_local_date(start_date, "%d-%m-%Y %H:%M:%S")
             if period.get("end"):
                 end_date = period["end"]
                 if isinstance(end_date, str):
                     end_date = parse_datetime(end_date)
                 if end_date:
-                    discharge_date = end_date.strftime("%d-%m-%Y %H:%M:%S")
+                    discharge_date = format_datetime_to_local_date(end_date, "%d-%m-%Y %H:%M:%S")
 
         data = AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
-            invoice_date=invoice.issue_date.strftime("%d-%m-%Y"),
+            invoice_date=format_datetime_to_local_date(invoice.issue_date, "%d-%m-%Y"),
             x_care_id=str(invoice.external_id),
             bill_type=BillType.customer,
-            due_date=invoice.issue_date.strftime("%d-%m-%Y"),
+            due_date=format_datetime_to_local_date(invoice.issue_date, "%d-%m-%Y"),
             reason="",
             x_created_by=invoice.updated_by.full_name if invoice.updated_by else None,
             x_identifier=x_identifier,
