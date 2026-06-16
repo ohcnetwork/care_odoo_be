@@ -19,6 +19,7 @@ from care_odoo.resources.product_category.spec import CategoryData
 from care_odoo.resources.product_product.spec import ProductData, TaxData
 from care_odoo.resources.res_partner.spec import PartnerData, PartnerType
 from care_odoo.resources.utils import (
+    format_date,
     format_datetime_to_local_date,
     get_all_discounts,
     get_base_price_from_charge_item,
@@ -95,7 +96,7 @@ class OdooInvoiceResource:
             email="",
             agent=False,
             gender=invoice.patient.gender if invoice.patient.gender else None,
-            birthdate=invoice.patient.date_of_birth.strftime("%d-%m-%Y") if invoice.patient.date_of_birth else None,
+            birthdate=format_date(invoice.patient.date_of_birth, "%d-%m-%Y") if invoice.patient.date_of_birth else None,
             street=invoice.patient.address if invoice.patient.address else None,
             ref=x_identifier,
         )

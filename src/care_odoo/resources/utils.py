@@ -2,7 +2,7 @@
 Utility functions for extracting price components from charge items and charge item definitions.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from care.emr.models.charge_item import ChargeItem
@@ -321,3 +321,21 @@ def format_datetime_to_local_date(dt: datetime, fmt: str = "%Y-%m-%d") -> str:
     """
     local_dt = timezone.localtime(dt)
     return local_dt.strftime(fmt)
+
+
+def format_date(d: date, fmt: str = "%Y-%m-%d") -> str:
+    """
+    Format a date object as a string.
+
+    Use this for plain ``date`` fields (e.g. date of birth) which carry no
+    timezone information and therefore must not be passed through
+    ``timezone.localtime``.
+
+    Args:
+        d: A date object
+        fmt: strftime format string (defaults to ``%Y-%m-%d``)
+
+    Returns:
+        Formatted date string
+    """
+    return d.strftime(fmt)
