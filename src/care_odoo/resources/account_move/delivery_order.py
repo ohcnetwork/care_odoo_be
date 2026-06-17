@@ -1,7 +1,6 @@
 import logging
 
 from django.utils.dateparse import parse_datetime
-from django.utils.timezone import localtime
 
 from care.emr.models.supply_delivery import DeliveryOrder, SupplyDelivery
 from care.emr.resources.inventory.supply_delivery.spec import (
@@ -18,6 +17,7 @@ from care_odoo.resources.product_category.spec import CategoryData
 from care_odoo.resources.product_product.spec import ProductData, TaxData
 from care_odoo.resources.res_partner.spec import PartnerData, PartnerType
 from care_odoo.resources.utils import (
+    format_datetime_to_local_date,
     get_base_price_from_definition,
     get_purchase_price_from_definition,
     get_taxes_from_definition,
@@ -148,14 +148,14 @@ class OdooDeliveryOrderResource:
         delivery_order_extension = (delivery_order.extensions or {}).get("supply_delivery_order_extension", {})
         vendor_bill_date = delivery_order_extension.get("vendor_bill_date")
         parsed_bill_date = parse_datetime(vendor_bill_date) if vendor_bill_date else None
-        formatted_bill_date = localtime(parsed_bill_date).strftime("%d-%m-%Y") if parsed_bill_date else None
+        formatted_bill_date = format_datetime_to_local_date(parsed_bill_date, "%d-%m-%Y") if parsed_bill_date else None
         data = AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
-            invoice_date=delivery_order.created_date.strftime("%d-%m-%Y"),
+            invoice_date=format_datetime_to_local_date(delivery_order.created_date, "%d-%m-%Y"),
             x_care_id=str(delivery_order.external_id),
             bill_type=BillType.vendor,
-            due_date=delivery_order.created_date.strftime("%d-%m-%Y"),
+            due_date=format_datetime_to_local_date(delivery_order.created_date, "%d-%m-%Y"),
             reason="",
             x_created_by=delivery_order.updated_by.full_name if delivery_order.updated_by else None,
             payment_reference=(delivery_order.extensions or {}).get("payment_reference", ""),

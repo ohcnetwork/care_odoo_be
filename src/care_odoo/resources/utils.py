@@ -2,7 +2,7 @@
 Utility functions for extracting price components from charge items and charge item definitions.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from care.emr.models.charge_item import ChargeItem
@@ -304,19 +304,38 @@ def format_name(user, hide_prefix_suffix: bool = False) -> str:
     return username if username else "-"
 
 
-def format_datetime_to_local_date(dt: datetime) -> str:
+def format_datetime_to_local_date(dt: datetime, fmt: str = "%Y-%m-%d") -> str:
     """
-    Convert a datetime to local timezone and format as date string.
+    Convert a datetime to local timezone and format as a date/datetime string.
 
     Django stores datetimes in UTC. This function converts the datetime
     to the local timezone (as configured in Django settings) before
-    extracting the date, ensuring the correct date is used.
+    formatting, ensuring the correct date (and time) is used.
 
     Args:
         dt: A datetime object (typically stored in UTC)
+        fmt: strftime format string (defaults to ``%Y-%m-%d``)
 
     Returns:
-        Date string in YYYY-MM-DD format in local timezone
+        Formatted string in the local timezone
     """
     local_dt = timezone.localtime(dt)
-    return local_dt.strftime("%Y-%m-%d")
+    return local_dt.strftime(fmt)
+
+
+def format_date(d: date, fmt: str = "%Y-%m-%d") -> str:
+    """
+    Format a date object as a string.
+
+    Use this for plain ``date`` fields (e.g. date of birth) which carry no
+    timezone information and therefore must not be passed through
+    ``timezone.localtime``.
+
+    Args:
+        d: A date object
+        fmt: strftime format string (defaults to ``%Y-%m-%d``)
+
+    Returns:
+        Formatted date string
+    """
+    return d.strftime(fmt)
