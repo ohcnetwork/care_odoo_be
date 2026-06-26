@@ -46,11 +46,15 @@ class AccountMovePaymentApiRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_payment_method_line(self):
-        """Validate that credit payments include payment_method_line_id."""
-        if self.journal_input == JournalType.credit and not self.payment_method_line_id:
+        """payment_method_line_id is required for, and only allowed on, credit payments."""
+        is_credit = self.journal_input == JournalType.credit
+        if is_credit and not self.payment_method_line_id:
             raise ValueError(
-                "payment_method_line_id is required for credit (Care of Account) payments. "
-                "Use GET /api/v1/odoo/payment-method-line/ to fetch available payment methods."
+                "Credit Source is required for credit (Care of Account) payments. "
+            )
+        if not is_credit and self.payment_method_line_id:
+            raise ValueError(
+                "Credit Source is only allowed for credit (Care of Account) payments."
             )
         return self
 

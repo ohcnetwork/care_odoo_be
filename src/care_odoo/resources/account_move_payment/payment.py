@@ -29,7 +29,7 @@ PAYMENT_METHOD_TO_JOURNAL_TYPE: dict[str, JournalType] = {
     PaymentReconciliationPaymentMethodOptions.cash.value: JournalType.cash,  # Cash payment
     PaymentReconciliationPaymentMethodOptions.ccca.value: JournalType.card,  # Credit card
     PaymentReconciliationPaymentMethodOptions.cchk.value: JournalType.bank,  # Certified check
-    PaymentReconciliationPaymentMethodOptions.cdac.value: JournalType.bank,  # Checking/debit account
+    PaymentReconciliationPaymentMethodOptions.cdac.value: JournalType.credit,  # Care of Account credit flow
     PaymentReconciliationPaymentMethodOptions.chck.value: JournalType.bank,  # Check
     PaymentReconciliationPaymentMethodOptions.ddpo.value: JournalType.bank,  # Direct deposit/payment order
     PaymentReconciliationPaymentMethodOptions.debc.value: JournalType.debit,  # Debit card
@@ -72,42 +72,20 @@ class OdooPaymentResource:
     # Extension key for credit payment data
     CREDIT_EXTENSION_KEY = "payment_reconciliation_credit_extension"
 
-    def _get_credit_extension_data(self, payment: PaymentReconciliation) -> dict | None:
+    def _get_credit_payment_method_line_id(self, payment: PaymentReconciliation) -> int | None:
         """
-        Extract credit payment extension data from payment.
+        Return the payment_method_line_id from the credit extension, or None if unset/invalid.
 
-        Returns:
-            Dict with payment_method_line_id if this is a credit payment, None otherwise
-
-        Raises:
-            ValueError: If credit payment is attempted on a refund (credit note)
+        The credit extension lives under 'payment_reconciliation_credit_extension' and is
+        only meaningful for cdac (Care of Account) credit payments.
         """
-        if not payment.extensions:
-            return None
-
-        credit_ext = payment.extensions.get(self.CREDIT_EXTENSION_KEY)
-        if not credit_ext:
-            return None
-
-        # Check if is_credit flag is set to True
-        is_credit = credit_ext.get("is_credit", False)
-        if not is_credit:
-            return None
-
-        payment_method_line_id = credit_ext.get("payment_method_line_id")
-        if not payment_method_line_id:
-            return None
+        credit_ext = (payment.extensions or {}).get(self.CREDIT_EXTENSION_KEY) or {}
 
         # Convert string ID to int (matching insurance_company pattern)
         try:
-            payment_method_line_id = int(payment_method_line_id)
+            return int(credit_ext.get("payment_method_line_id"))
         except (ValueError, TypeError):
-            logger.warning(f"Invalid payment_method_line_id in credit extension: {payment_method_line_id}")
             return None
-
-        return {
-            "payment_method_line_id": payment_method_line_id,
-        }
 
     def has_insurance_tag(self, account_tags: list[int], insurance_tag_external_id: str) -> bool:
         """
@@ -155,9 +133,6 @@ class OdooPaymentResource:
             "facility", "account", "account__patient", "target_invoice", "location", "created_by"
         ).get(external_id=payment_id)
 
-        # Check if this is a credit payment (Care of Account)
-        credit_data = self._get_credit_extension_data(payment)
-
         # Handle insurance company id when issuer is set
         if payment.issuer_type == "insurer":
             # Validate insurance configuration
@@ -188,13 +163,11 @@ class OdooPaymentResource:
             agent=False,
         )
 
-        # Determine journal type and payment_method_line_id
-        if credit_data:
-            journal_type = JournalType.credit
-            payment_method_line_id = credit_data["payment_method_line_id"]
-        else:
-            journal_type = PAYMENT_METHOD_TO_JOURNAL_TYPE.get(payment.method, JournalType.bank)
-            payment_method_line_id = None
+        # Determine journal type; cdac (Care of Account) is a credit flow that
+        # carries a payment_method_line_id. The credit/non-credit invariant is
+        # enforced by AccountMovePaymentApiRequest.
+        journal_type = PAYMENT_METHOD_TO_JOURNAL_TYPE.get(payment.method, JournalType.bank)
+        payment_method_line_id = self._get_credit_payment_method_line_id(payment)
 
         # Prepare payment data
         data = AccountMovePaymentApiRequest(
