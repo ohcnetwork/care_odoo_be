@@ -96,14 +96,13 @@ class OdooPaymentResource:
 
         payment_method_line_id = credit_ext.get("payment_method_line_id")
         if not payment_method_line_id:
-            return None
+            raise ValidationError("Credit payments require a credit source")
 
         # Convert string ID to int (matching insurance_company pattern)
         try:
             payment_method_line_id = int(payment_method_line_id)
         except (ValueError, TypeError):
-            logger.warning(f"Invalid payment_method_line_id in credit extension: {payment_method_line_id}")
-            return None
+            raise ValidationError("Credit payments require a valid credit source") from None
 
         return {
             "payment_method_line_id": payment_method_line_id,
