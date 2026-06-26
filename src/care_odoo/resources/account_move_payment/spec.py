@@ -2,7 +2,6 @@ from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel, model_validator
-from rest_framework.exceptions import ValidationError
 
 from care_odoo.resources.res_partner.spec import PartnerData
 
@@ -50,11 +49,11 @@ class AccountMovePaymentApiRequest(BaseModel):
         """payment_method_line_id is required for, and only allowed on, credit payments."""
         is_credit = self.journal_input == JournalType.credit
         if is_credit and not self.payment_method_line_id:
-            raise ValidationError(
+            raise ValueError(
                 "Credit Source is required for credit (Care of Account) payments. "
             )
         if not is_credit and self.payment_method_line_id:
-            raise ValidationError(
+            raise ValueError(
                 "Credit Source is only allowed for credit (Care of Account) payments."
             )
         return self
