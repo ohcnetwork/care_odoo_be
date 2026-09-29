@@ -3,8 +3,8 @@ import json
 import logging
 
 import requests
-from rest_framework.exceptions import ValidationError
 
+from care_odoo.exceptions import OdooClientError, OdooConnectionError, OdooServerError
 from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
@@ -63,10 +63,18 @@ class OdooConnector:
 
             if not response.ok:
                 error_msg = response_json.get("message", str(response.reason))
-                logger.exception("Odoo API Response Error: %s", error_msg)
-                raise ValidationError(str(error_msg))
+                logger.error("Odoo API Response Error: %s", error_msg)
+                if response.status_code >= 500:
+                    raise OdooServerError(error_msg)
+                raise OdooClientError(error_msg)
 
             return response_json
+        except requests.exceptions.Timeout as e:
+            logger.exception("Odoo API Timeout: %s", str(e))
+            raise OdooConnectionError("Odoo request timed out") from e
+        except requests.exceptions.ConnectionError as e:
+            logger.exception("Odoo API Connection Error: %s", str(e))
+            raise OdooConnectionError("Could not connect to Odoo") from e
         except requests.exceptions.RequestException as e:
-            logger.exception("Odoo API Resonse Processing Error: %s", str(e))
-            raise ValidationError(str(e)) from e
+            logger.exception("Odoo API Request Error: %s", str(e))
+            raise OdooConnectionError(str(e)) from e
