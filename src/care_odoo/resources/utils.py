@@ -208,16 +208,18 @@ def get_taxes_from_definition(charge_item_definition: ChargeItemDefinition | Non
 
 def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
     """
-    Extract all discounts from charge item's unit and total price components.
+    Extract the discounts applied to a charge item.
+
+    unit_price_components lists every discount the item is eligible for, but Care only
+    applies the ones its discount_configuration allows (max_applicable, picked by
+    applicability_order). Only applied discounts are copied to total_price_components,
+    so eligible discounts missing from it are skipped.
 
     Args:
         charge_item: ChargeItem instance
 
     Returns:
-        List of InvoiceDiscounts if discounts found, None otherwise
-
-    Raises:
-        ValidationError: If more than 1 discount is found per item
+        List of InvoiceDiscounts if any discount was applied, None otherwise
     """
     if not charge_item or not charge_item.unit_price_components:
         return None
@@ -249,7 +251,7 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
             rate = float(unit_discount.get("amount", 0.0))
 
         # Get discount amount from total_price_components
-        disc_amt = 0.0
+        disc_amt = None
         if charge_item.total_price_components:
             for component in charge_item.total_price_components:
                 if (
@@ -258,6 +260,10 @@ def get_all_discounts(charge_item: ChargeItem) -> list[InvoiceDiscounts] | None:
                 ):
                     disc_amt = float(component.get("amount", 0.0))
                     break
+
+        # Missing from total_price_components: the discount configuration didn't apply it
+        if disc_amt is None:
+            continue
 
         discounts.append(
             InvoiceDiscounts(
