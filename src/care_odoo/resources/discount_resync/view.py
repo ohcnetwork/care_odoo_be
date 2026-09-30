@@ -9,6 +9,7 @@ place (same number, payments re-matched) or leaves it untouched.
 import csv
 import io
 import json
+import math
 
 from care.emr.models.charge_item import ChargeItem
 from care.emr.models.invoice import Invoice
@@ -21,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from care_odoo.connector.connector import OdooConnector
+from care_odoo.resources.account_move.spec import InvoiceDiscounts
 from care_odoo.resources.utils import get_all_discounts
 
 # Invoices per Odoo call, to stay well inside the connector's 30s timeout
@@ -119,32 +121,45 @@ def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
 
 
 def invoices_from_csv(upload) -> list[dict]:
-    """Build the Odoo payload from the 01_care_find_affected.sql export."""
+    """Build the Odoo payload from the 01_care_find_affected.sql export. A malformed file is a 400."""
     try:
         reader = csv.DictReader(io.StringIO(upload.read().decode("utf-8-sig")))
+    except UnicodeDecodeError as error:
+        raise ValidationError(f"The file isn't UTF-8 text: {error}") from error
+    invoices = {}
+    try:
         missing = set(CSV_COLUMNS) - set(reader.fieldnames or [])
         if missing:
             raise ValidationError(f"The file is missing the columns {', '.join(sorted(missing))}.")
-        invoices = {}
         for row in reader:
-            # A short row would otherwise read as having no discounts
-            if any(row[column] is None for column in CSV_COLUMNS):
-                raise ValidationError(f"Line {reader.line_num} of the file is missing cells.")
+            # An empty cell or a short row would otherwise be sent as a blank ID or as no discounts
+            if any(not (row[column] or "").strip() for column in CSV_COLUMNS):
+                raise ValueError("a cell is missing or empty")
+            care_total = float(row["care_total"].replace(",", ""))
+            if not math.isfinite(care_total):
+                raise ValueError(f"care_total is {row['care_total']}")
+            discounts = json.loads(row["applied_discounts"])
+            if not isinstance(discounts, list):
+                raise ValueError("applied_discounts isn't a list")
             invoice = invoices.setdefault(
                 row["invoice"],
                 {
                     "invoice": row["invoice"],
                     "x_care_id": row["invoice_x_care_id"],
-                    "care_total": float(row["care_total"].replace(",", "")),
+                    "care_total": care_total,
                     "lines": [],
                 },
             )
             invoice["lines"].append(
-                {"x_care_id": row["line_x_care_id"], "discounts": json.loads(row["applied_discounts"] or "[]")}
+                {
+                    "x_care_id": row["line_x_care_id"],
+                    # Checked and shaped like the discounts Care builds itself
+                    "discounts": [InvoiceDiscounts.model_validate(item).model_dump(mode="json") for item in discounts],
+                }
             )
-    # Not UTF-8, or a bad number or JSON value
+    # A bad number or JSON value, or a discount with missing or invalid fields
     except (ValueError, csv.Error) as error:
-        raise ValidationError(f"Couldn't read the file: {error}") from error
+        raise ValidationError(f"Line {reader.line_num} of the file: {error}") from error
     return list(invoices.values())
 
 
