@@ -67,12 +67,19 @@ class ResultsCSVRenderer(BaseRenderer):
         return output.getvalue()
 
 
-def as_bool(value, default: bool) -> bool:
+def as_bool(data, key: str, default: bool) -> bool:
+    """A true/false field from JSON or form data. Anything else is rejected, so a typo can't turn off a dry run."""
+    value = data.get(key)
     if value is None or value == "":
         return default
     if isinstance(value, bool):
         return value
-    return str(value).strip().lower() in ("1", "true", "yes")
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes"):
+        return True
+    if text in ("0", "false", "no"):
+        return False
+    raise ValidationError(f"{key} must be true or false.")
 
 
 def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
@@ -162,8 +169,8 @@ class DiscountResyncView(APIView):
     renderer_classes = [JSONRenderer, ResultsCSVRenderer]
 
     def post(self, request, *args, **kwargs):
-        dry_run = as_bool(request.data.get("dry_run"), default=True)
-        all_or_nothing = as_bool(request.data.get("all_or_nothing"), default=False)
+        dry_run = as_bool(request.data, "dry_run", default=True)
+        all_or_nothing = as_bool(request.data, "all_or_nothing", default=False)
         if "file" in request.FILES:
             invoices, results = invoices_from_csv(request.FILES["file"]), []
         else:
