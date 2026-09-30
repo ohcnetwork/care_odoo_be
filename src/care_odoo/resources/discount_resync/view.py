@@ -28,6 +28,8 @@ ODOO_BATCH_SIZE = 5
 # all_or_nothing sends the whole request to Odoo in one call
 ALL_OR_NOTHING_LIMIT = 10
 SYNCED_STATUSES = (InvoiceStatusOptions.issued.value, InvoiceStatusOptions.balanced.value)
+# Columns of the affected-invoices export that the payload is built from
+CSV_COLUMNS = ["invoice", "invoice_x_care_id", "care_total", "line_x_care_id", "applied_discounts"]
 RESULT_COLUMNS = [
     "invoice",
     "status",
@@ -118,20 +120,31 @@ def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
 
 def invoices_from_csv(upload) -> list[dict]:
     """Build the Odoo payload from the 01_care_find_affected.sql export."""
-    invoices = {}
-    for row in csv.DictReader(io.StringIO(upload.read().decode("utf-8-sig"))):
-        invoice = invoices.setdefault(
-            row["invoice"],
-            {
-                "invoice": row["invoice"],
-                "x_care_id": row["invoice_x_care_id"],
-                "care_total": float(row["care_total"].replace(",", "")),
-                "lines": [],
-            },
-        )
-        invoice["lines"].append(
-            {"x_care_id": row["line_x_care_id"], "discounts": json.loads(row["applied_discounts"] or "[]")}
-        )
+    try:
+        reader = csv.DictReader(io.StringIO(upload.read().decode("utf-8-sig")))
+        missing = set(CSV_COLUMNS) - set(reader.fieldnames or [])
+        if missing:
+            raise ValidationError(f"The file is missing the columns {', '.join(sorted(missing))}.")
+        invoices = {}
+        for row in reader:
+            # A short row would otherwise read as having no discounts
+            if any(row[column] is None for column in CSV_COLUMNS):
+                raise ValidationError(f"Line {reader.line_num} of the file is missing cells.")
+            invoice = invoices.setdefault(
+                row["invoice"],
+                {
+                    "invoice": row["invoice"],
+                    "x_care_id": row["invoice_x_care_id"],
+                    "care_total": float(row["care_total"].replace(",", "")),
+                    "lines": [],
+                },
+            )
+            invoice["lines"].append(
+                {"x_care_id": row["line_x_care_id"], "discounts": json.loads(row["applied_discounts"] or "[]")}
+            )
+    # Not UTF-8, or a bad number or JSON value
+    except (ValueError, csv.Error) as error:
+        raise ValidationError(f"Couldn't read the file: {error}") from error
     return list(invoices.values())
 
 
@@ -171,7 +184,7 @@ class DiscountResyncView(APIView):
         if "file" in request.FILES:
             invoices, results = invoices_from_csv(request.FILES["file"]), []
         else:
-            numbers = request.data.get("invoice_numbers") or []
+            numbers = request.data.get("invoice_numbers", [])
             if isinstance(numbers, str):
                 numbers = [numbers]
             if not isinstance(numbers, list) or not all(isinstance(number, str) for number in numbers):
