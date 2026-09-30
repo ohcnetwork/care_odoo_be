@@ -68,17 +68,14 @@ class ResultsCSVRenderer(BaseRenderer):
 
 
 def as_bool(data, key: str, default: bool) -> bool:
-    """A true/false field from JSON or form data. Anything else is rejected, so a typo can't turn off a dry run."""
-    value = data.get(key)
-    if value is None or value == "":
+    """A true/false field from JSON or form data. Any other value is rejected, so a typo can't turn off a dry run."""
+    if key not in data:
         return default
+    value = data.get(key)
     if isinstance(value, bool):
         return value
-    text = str(value).strip().lower()
-    if text in ("1", "true", "yes"):
-        return True
-    if text in ("0", "false", "no"):
-        return False
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
     raise ValidationError(f"{key} must be true or false.")
 
 
@@ -175,7 +172,11 @@ class DiscountResyncView(APIView):
             invoices, results = invoices_from_csv(request.FILES["file"]), []
         else:
             numbers = request.data.get("invoice_numbers") or []
-            invoices, results = invoices_from_care([numbers] if isinstance(numbers, str) else numbers)
+            if isinstance(numbers, str):
+                numbers = [numbers]
+            if not isinstance(numbers, list) or not all(isinstance(number, str) for number in numbers):
+                raise ValidationError("invoice_numbers must be a list of invoice numbers.")
+            invoices, results = invoices_from_care(numbers)
 
         if all_or_nothing:
             if len(invoices) + len(results) > ALL_OR_NOTHING_LIMIT:
