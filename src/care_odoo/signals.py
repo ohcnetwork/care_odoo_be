@@ -1,6 +1,6 @@
 import logging
 
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from care.emr.models.charge_item_definition import ChargeItemDefinition
@@ -44,6 +44,21 @@ def sync_user_to_odoo(sender, instance, created, **kwargs):
     """
     Signal handler to sync user to Odoo when created or updated.
     """
+    odoo_user = OdooUserResource()
+    odoo_user.sync_user_to_odoo_api(instance)
+
+
+@receiver(post_delete, sender=User)
+def sync_user_delete_to_odoo(sender, instance, **kwargs):
+    """
+    Signal handler to archive a user in Odoo when it is hard-deleted from Care.
+
+    Users that have never logged in are hard-deleted (see Care's
+    UserViewSet.perform_destroy), which only fires post_delete and not
+    post_save. Mark the in-memory instance as deleted so the linked partner is
+    synced to Odoo with a retired status.
+    """
+    instance.deleted = True
     odoo_user = OdooUserResource()
     odoo_user.sync_user_to_odoo_api(instance)
 
