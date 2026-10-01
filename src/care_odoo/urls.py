@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 
 from care_odoo.resources.cash_session.viewset import CashSessionViewSet
 from care_odoo.resources.cash_transfer.viewset import CashTransferViewSet
+from care_odoo.resources.discount_resync.view import DiscountResyncView
 from care_odoo.resources.payment_method_line.viewset import PaymentMethodLineViewSet
 
 
@@ -21,6 +22,7 @@ facility_router.register("cash-transfer", CashTransferViewSet, basename="cash-tr
 
 urlpatterns = [
     path("ping/", ping, name="ping"),
+    path("discount-resync/", DiscountResyncView.as_view(), name="discount-resync"),
     path("", include(router.urls)),
     path(
         "facility/<uuid:facility_external_id>/",
