@@ -150,6 +150,8 @@ def invoices_from_csv(upload) -> list[dict]:
                     "lines": [],
                 },
             )
+            if invoice["x_care_id"] != row["invoice_x_care_id"] or invoice["care_total"] != care_total:
+                raise ValueError("rows for the same invoice have a different invoice_x_care_id or care_total")
             invoice["lines"].append(
                 {
                     "x_care_id": row["line_x_care_id"],
