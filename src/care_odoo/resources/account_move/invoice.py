@@ -72,7 +72,17 @@ class OdooInvoiceResource:
             Odoo invoice ID if successful, None otherwise
         """
         invoice = Invoice.objects.select_related("facility", "patient").get(external_id=invoice_id)
+        data = self.build_invoice_payload(invoice)
+        logger.info("Odoo Invoice Data: %s", data)
 
+        response = OdooConnector.call_api("api/account/move", data)
+        invoice_number = response.get("invoice", {}).get("name")
+        invoice.number = invoice_number
+        invoice.save(update_fields=["number"])
+        return response["invoice"]["id"]
+
+    def build_invoice_payload(self, invoice: Invoice) -> dict:
+        """The invoice as the Odoo connector receives it, for both the sync and the resync."""
         # Extract patient identifier if configured
         patient_official_identifier_id = plugin_settings.CARE_PATIENT_OFFICIAL_IDENTIFIER
         x_identifier = None
@@ -217,7 +227,7 @@ class OdooInvoiceResource:
                 if end_date:
                     discharge_date = format_datetime_to_local_date(end_date, "%d-%m-%Y %H:%M:%S")
 
-        data = AccountMoveApiRequest(
+        return AccountMoveApiRequest(
             partner_data=partner_data,
             invoice_items=invoice_items,
             invoice_date=format_datetime_to_local_date(invoice.issue_date, "%d-%m-%Y"),
@@ -236,13 +246,6 @@ class OdooInvoiceResource:
             room_number=room_number,
             ip_bill_no=str(invoice.account.id) if invoice.account else None,
         ).model_dump()
-        logger.info("Odoo Invoice Data: %s", data)
-
-        response = OdooConnector.call_api("api/account/move", data)
-        invoice_number = response.get("invoice", {}).get("name")
-        invoice.number = invoice_number
-        invoice.save(update_fields=["number"])
-        return response["invoice"]["id"]
 
     def sync_invoice_return_to_odoo_api(self, invoice_id: str) -> int | None:
         """
