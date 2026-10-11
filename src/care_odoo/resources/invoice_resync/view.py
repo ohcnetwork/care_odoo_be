@@ -1,80 +1,38 @@
 """
 Superuser endpoint to resync issued invoices to Odoo.
 
-Care builds each invoice the way the live sync does and sends it to the Odoo connector's resync
-endpoint. Odoo corrects a posted invoice in place where its lines differ (same number, payments
-re-matched) and leaves one that matches untouched.
+Care builds each invoice the way the live sync does and sends them to the Odoo connector's resync
+endpoint in one call. Odoo corrects a posted invoice in place where its lines differ (same number,
+payments re-matched) and leaves one that matches untouched. scripts/invoice_resync.py runs it for a
+list of invoices.
 """
-
-import csv
-import io
 
 from care.emr.models.invoice import Invoice
 from care.emr.resources.invoice.spec import InvoiceStatusOptions
+from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
-from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move.invoice import OdooInvoiceResource
 
-# Invoices per Odoo call, to stay well inside the connector's 30s timeout
-ODOO_BATCH_SIZE = 5
-# all_or_nothing sends the whole request to Odoo in one call
-ALL_OR_NOTHING_LIMIT = 10
+# Each request is one Odoo call, so this keeps it well inside the connector's and the server's 30s timeouts
+MAX_INVOICES = 10
 SYNCED_STATUSES = (InvoiceStatusOptions.issued.value, InvoiceStatusOptions.balanced.value)
-RESULT_COLUMNS = [
-    "invoice",
-    "status",
-    "invoice_date",
-    "journal",
-    "lines_changed",
-    "care_total",
-    "old_untaxed",
-    "new_untaxed",
-    "old_tax",
-    "new_tax",
-    "old_total",
-    "new_total",
-    "old_payment_state",
-    "new_payment_state",
-    "changes",
-]
+
+
+class InvoiceResyncRequest(BaseModel):
+    invoice_numbers: list[str] = Field(min_length=1, max_length=MAX_INVOICES)
+    dry_run: bool = True
+    all_or_nothing: bool = False
 
 
 class IsSuperUser(BasePermission):
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
-
-
-class ResultsCSVRenderer(BaseRenderer):
-    """Renders the results for ?format=csv."""
-
-    media_type = "text/csv"
-    format = "csv"
-    charset = "utf-8"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        rows = data["results"] if isinstance(data, dict) and "results" in data else [{"status": f"error: {data}"}]
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=RESULT_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-        return output.getvalue()
-
-
-def as_bool(data, key: str, default: bool) -> bool:
-    """A true/false field. Any other value is rejected, so a typo can't turn off a dry run."""
-    if key not in data:
-        return default
-    value = data.get(key)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
-        return value.strip().lower() == "true"
-    raise ValidationError(f"{key} must be true or false.")
 
 
 def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
@@ -125,41 +83,31 @@ def send_to_odoo(invoices: list[dict], dry_run: bool, all_or_nothing: bool) -> l
 
 class InvoiceResyncView(APIView):
     """
-    POST {"invoice_numbers": [...], "dry_run": true, "all_or_nothing": false}. Dry run unless dry_run
-    is false. Add ?format=csv for the results as CSV.
+    POST {"invoice_numbers": [...], "dry_run": true, "all_or_nothing": false}, with up to MAX_INVOICES
+    invoices. Dry run unless dry_run is false.
     """
 
     permission_classes = [IsSuperUser]
-    renderer_classes = [JSONRenderer, ResultsCSVRenderer]
 
     def post(self, request, *args, **kwargs):
-        if not isinstance(request.data, dict):
-            raise ValidationError("The body must be a JSON object.")
-        dry_run = as_bool(request.data, "dry_run", default=True)
-        all_or_nothing = as_bool(request.data, "all_or_nothing", default=False)
-        numbers = request.data.get("invoice_numbers")
-        if isinstance(numbers, str):
-            numbers = [numbers]
-        if not isinstance(numbers, list) or not all(isinstance(number, str) for number in numbers):
-            raise ValidationError("invoice_numbers must be a list of invoice numbers.")
-        invoices, results = invoices_from_care(numbers)
-
-        if all_or_nothing:
-            if len(invoices) + len(results) > ALL_OR_NOTHING_LIMIT:
-                raise ValidationError(f"all_or_nothing supports up to {ALL_OR_NOTHING_LIMIT} invoices per call.")
-            if results:
-                # An invoice can't be sent, so send none of them
-                results += [
-                    {
-                        "invoice": invoice["invoice"],
-                        "care_total": invoice["care_total"],
-                        "status": "not sent: another invoice in this request has a problem",
-                    }
-                    for invoice in invoices
-                ]
-                invoices = []
-
-        batch_size = len(invoices) if all_or_nothing else ODOO_BATCH_SIZE
-        for start in range(0, len(invoices), batch_size or 1):
-            results += send_to_odoo(invoices[start : start + batch_size], dry_run, all_or_nothing)
-        return Response({"dry_run": dry_run, "all_or_nothing": all_or_nothing, "results": results})
+        try:
+            params = InvoiceResyncRequest.model_validate(request.data)
+        except PydanticValidationError as error:
+            raise ValidationError(
+                [f"{'.'.join(map(str, e['loc'])) or 'body'}: {e['msg']}" for e in error.errors()]
+            ) from error
+        invoices, results = invoices_from_care(params.invoice_numbers)
+        if params.all_or_nothing and results:
+            # An invoice can't be sent, so send none of them
+            results += [
+                {
+                    "invoice": invoice["invoice"],
+                    "care_total": invoice["care_total"],
+                    "status": "not sent: another invoice in this request has a problem",
+                }
+                for invoice in invoices
+            ]
+            invoices = []
+        if invoices:
+            results += send_to_odoo(invoices, params.dry_run, params.all_or_nothing)
+        return Response({"dry_run": params.dry_run, "all_or_nothing": params.all_or_nothing, "results": results})
