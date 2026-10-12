@@ -9,7 +9,7 @@ list of invoices.
 
 from care.emr.models.invoice import Invoice
 from care.emr.resources.invoice.spec import InvoiceStatusOptions
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
@@ -26,8 +26,9 @@ SYNCED_STATUSES = (InvoiceStatusOptions.issued.value, InvoiceStatusOptions.balan
 
 class InvoiceResyncRequest(BaseModel):
     invoice_numbers: list[str] = Field(min_length=1, max_length=MAX_INVOICES)
-    dry_run: bool = True
-    all_or_nothing: bool = False
+    # Only JSON true or false, so a value like 0 can't turn off the dry run
+    dry_run: StrictBool = True
+    all_or_nothing: StrictBool = False
 
 
 class IsSuperUser(BasePermission):
