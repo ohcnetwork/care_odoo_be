@@ -22,7 +22,6 @@ SYNCED_STATUSES = (InvoiceStatusOptions.issued.value, InvoiceStatusOptions.balan
 
 
 class InvoiceResyncRequest(BaseModel):
-    # Unknown fields are rejected, so a request still sending dry_run fails instead of applying
     model_config = ConfigDict(extra="forbid")
     invoice_number: str
 
