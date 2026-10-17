@@ -58,7 +58,7 @@ def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
         except Exception as error:  # e.g. a missing price or encounter: report it and carry on
             problems.append({"invoice": number, "status": f"Care couldn't build the invoice: {error}"})
             continue
-        invoices.append({"invoice": number, "care_total": float(invoice.total_gross), "data": data})
+        invoices.append({"number": number, "care_total": float(invoice.total_gross), "data": data})
     return invoices, problems
 
 
@@ -76,7 +76,7 @@ def send_to_odoo(invoices: list[dict], dry_run: bool) -> list[dict]:
             # A call that timed out may still have been applied in Odoo
             status += " (run a dry run for this invoice to check whether Odoo applied it)"
         return [
-            {"invoice": invoice["invoice"], "care_total": invoice["care_total"], "status": status}
+            {"invoice": invoice["number"], "care_total": invoice["care_total"], "status": status}
             for invoice in invoices
         ]
 
