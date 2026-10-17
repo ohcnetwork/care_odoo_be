@@ -63,6 +63,7 @@ class AccountMoveApiRequest(BaseModel):
     is_refund: bool = False
     bill_number: str | None = None
     bill_date: str | None = None
+    grn_sequence_code: str | None = None
     room_number: str | None = None
     ip_bill_no: str | None = None
 

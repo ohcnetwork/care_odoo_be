@@ -110,6 +110,9 @@ DEFAULTS = {
     "CARE_ODOO_CLEANUP_DELAY_SECONDS": 30,
     "CARE_INSURANCE_TAG_ID": "",
     "CARE_ODOO_INTERNAL_SUPPLIER_ID": "",
+    # Maps a delivery order's destination location external ID to the Odoo GRN sequence code
+    # used to number its vendor bill, e.g. "<location_id>=grn.lab.sequence,<location_id>=grn.number.sequence"
+    "CARE_ODOO_GRN_SEQUENCE_MAP": {},
 }
 
 # Required settings for production

@@ -182,11 +182,15 @@ def sync_organization_to_odoo(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender=DeliveryOrder)
-def sync_delivery_order_to_odoo(sender, instance, created, **kwargs):
+def sync_delivery_order_to_odoo(sender, instance, created, update_fields, **kwargs):
     """
     Signal handler to sync delivery order to Odoo as a vendor bill when completed.
     Ignores delivery orders with a patient relation (patient-specific deliveries).
     """
+    # Skip sync if only 'name' field is being updated (GRN number saved back from Odoo)
+    if update_fields and update_fields == {"name"}:
+        return
+
     if (
         instance.status == SupplyDeliveryOrderStatusOptions.completed.value
         and not instance.origin
@@ -194,6 +198,8 @@ def sync_delivery_order_to_odoo(sender, instance, created, **kwargs):
     ):
         odoo_delivery_order = OdooDeliveryOrderResource()
         odoo_delivery_order.sync_delivery_order_to_odoo_api(instance.external_id)
+        # The GRN number is saved as the name on a separate copy of the order, so reload it here
+        instance.refresh_from_db(fields=["name"])
 
 
 @receiver(post_save, sender=Product)
