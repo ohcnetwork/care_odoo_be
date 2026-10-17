@@ -161,9 +161,16 @@ class OdooDeliveryOrderResource:
             payment_reference=(delivery_order.extensions or {}).get("payment_reference", ""),
             bill_number=delivery_order_extension.get("vendor_bill_number"),
             bill_date=formatted_bill_date,
+            grn_sequence_code=plugin_settings.CARE_ODOO_GRN_SEQUENCE_MAP.get(
+                str(delivery_order.destination.external_id)
+            ),
         ).model_dump()
 
         logger.info("Odoo Delivery Order Data: %s", data)
 
         response = OdooConnector.call_api("api/account/move", data)
+        grn_number = response.get("invoice", {}).get("grn_number")
+        if grn_number:
+            delivery_order.name = grn_number
+            delivery_order.save(update_fields=["name"])
         return response["invoice"]["id"]

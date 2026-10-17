@@ -52,6 +52,27 @@ The following configuration variables are available for Care Odoo:
 
 * **CARE_ODOO_PASSWORD**: The password for Odoo authentication.
 
+* **CARE_ODOO_GRN_SEQUENCE_MAP**: Maps a delivery order's destination location (external ID) to the Odoo GRN
+  sequence code used for its vendor bill. For a mapped location, Odoo assigns the GRN number when it creates the
+  draft vendor bill, and Care saves it as the delivery order's name. Vendor bills for unmapped locations get their
+  GRN number on posting, as before. Only the exact destination location matches, so a child location needs its own
+  entry.
+
+  As an environment variable, comma-separated `location_id=sequence_code` pairs:
+
+  ```bash
+  CARE_ODOO_GRN_SEQUENCE_MAP=3f2b1c9e-8a4d-4e7b-9c1a-2d5e6f7a8b9c=grn.lab.sequence,7d6e5f4a-3b2c-4d1e-8f9a-0b1c2d3e4f5a=grn.number.sequence
+  ```
+
+  Or as a dict in `configs`:
+
+  ```python
+  "CARE_ODOO_GRN_SEQUENCE_MAP": {
+      "3f2b1c9e-8a4d-4e7b-9c1a-2d5e6f7a8b9c": "grn.lab.sequence",  # Lab store
+      "7d6e5f4a-3b2c-4d1e-8f9a-0b1c2d3e4f5a": "grn.number.sequence",  # Pharmacy
+  },
+  ```
+
 
 The plugin will try to find the configuration from the settings first and then from environment variables.
 
