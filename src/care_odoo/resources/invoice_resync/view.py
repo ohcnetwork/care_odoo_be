@@ -28,7 +28,6 @@ class InvoiceResyncRequest(BaseModel):
     invoice_numbers: list[str] = Field(min_length=1, max_length=MAX_INVOICES)
     # Only JSON true or false, so a value like 0 can't turn off the dry run
     dry_run: StrictBool = True
-    all_or_nothing: StrictBool = False
 
 
 class IsSuperUser(BasePermission):
@@ -63,11 +62,11 @@ def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
     return invoices, problems
 
 
-def send_to_odoo(invoices: list[dict], dry_run: bool, all_or_nothing: bool) -> list[dict]:
+def send_to_odoo(invoices: list[dict], dry_run: bool) -> list[dict]:
     try:
         response = OdooConnector.call_api(
             "api/account/move/resync",
-            {"dry_run": dry_run, "all_or_nothing": all_or_nothing, "invoices": invoices},
+            {"dry_run": dry_run, "invoices": invoices},
         )
         return response["results"]
     except ValidationError as error:  # the connector raises this for HTTP and connection errors
@@ -84,8 +83,8 @@ def send_to_odoo(invoices: list[dict], dry_run: bool, all_or_nothing: bool) -> l
 
 class InvoiceResyncView(APIView):
     """
-    POST {"invoice_numbers": [...], "dry_run": true, "all_or_nothing": false}, with up to MAX_INVOICES
-    invoices. Dry run unless dry_run is false.
+    POST {"invoice_numbers": [...], "dry_run": true}, with up to MAX_INVOICES invoices. Dry run unless
+    dry_run is false.
     """
 
     permission_classes = [IsSuperUser]
@@ -98,17 +97,6 @@ class InvoiceResyncView(APIView):
                 [f"{'.'.join(map(str, e['loc'])) or 'body'}: {e['msg']}" for e in error.errors()]
             ) from error
         invoices, results = invoices_from_care(params.invoice_numbers)
-        if params.all_or_nothing and results:
-            # An invoice can't be sent, so send none of them
-            results += [
-                {
-                    "invoice": invoice["invoice"],
-                    "care_total": invoice["care_total"],
-                    "status": "not sent: another invoice in this request has a problem",
-                }
-                for invoice in invoices
-            ]
-            invoices = []
         if invoices:
-            results += send_to_odoo(invoices, params.dry_run, params.all_or_nothing)
-        return Response({"dry_run": params.dry_run, "all_or_nothing": params.all_or_nothing, "results": results})
+            results += send_to_odoo(invoices, params.dry_run)
+        return Response({"dry_run": params.dry_run, "results": results})
