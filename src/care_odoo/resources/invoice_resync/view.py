@@ -33,7 +33,10 @@ class IsSuperUser(BasePermission):
 
 
 class InvoiceResyncView(APIView):
-    """POST {"invoice_number": "..."}: resync that invoice to Odoo and return Odoo's result."""
+    """
+    POST {"invoice_number": "..."}: resync that invoice to Odoo. Returns Odoo's result (the status, the
+    changes, and the Odoo invoice before and after) with the invoice as Care sent it.
+    """
 
     permission_classes = [IsSuperUser]
 
@@ -59,8 +62,9 @@ class InvoiceResyncView(APIView):
             raise
         except Exception as error:  # e.g. a missing price
             raise ValidationError(f"Care couldn't build the invoice: {error}") from error
+        care_total = float(invoice.total_gross)
         response = OdooConnector.call_api(
             "api/account/move/resync",
-            {"number": number, "care_total": float(invoice.total_gross), "data": data},
+            {"number": number, "care_total": care_total, "data": data},
         )
-        return Response(response["result"])
+        return Response({**response["result"], "care_total": care_total, "care": data})
