@@ -2,10 +2,10 @@
 Resync Care invoices to Odoo through Care's invoice-resync endpoint.
 
 Reads the invoice numbers from a CSV's "invoice" column (e.g. a Metabase export), sends them to Care
-in batches, writes every result to a CSV and prints a summary. It's a dry run unless --apply is given.
+in batches, writes every result to a CSV and prints a summary. Running it again is safe: invoices
+already corrected show as in sync.
 
     python3 invoice_resync.py invoices.csv --care https://care.example.org --username <superuser>
-    python3 invoice_resync.py invoices.csv --care https://care.example.org --username <superuser> --apply
 
 The password is asked for, or read from CARE_PASSWORD. Only Python's standard library is needed.
 """
@@ -45,8 +45,8 @@ class Care:
         body = {"username": self.username, "password": self.password}
         self.token = post(f"{self.url}/api/v1/auth/login/", body)["access"]
 
-    def resync(self, numbers, apply):
-        body = {"invoice_numbers": numbers, "dry_run": not apply}
+    def resync(self, numbers):
+        body = {"invoice_numbers": numbers}
         try:
             return post(f"{self.url}/api/care_odoo/invoice-resync/", body, self.token)["results"]
         except urllib.error.HTTPError as error:
@@ -62,8 +62,7 @@ def main():
     parser.add_argument("csv", help='a CSV with the invoice numbers in an "invoice" column')
     parser.add_argument("--care", required=True, help="Care's API URL")
     parser.add_argument("--username", required=True, help="a Care superuser")
-    parser.add_argument("--apply", action="store_true", help="save the corrections (default: dry run)")
-    parser.add_argument("--out", help="the results CSV (default: resync_dry_run.csv or resync_applied.csv)")
+    parser.add_argument("--out", default="resync_results.csv", help="the results CSV (default: resync_results.csv)")
     args = parser.parse_args()
 
     with open(args.csv, newline="", encoding="utf-8-sig") as file:
@@ -79,32 +78,30 @@ def main():
     for start in range(0, len(numbers), BATCH_SIZE):
         batch = numbers[start : start + BATCH_SIZE]
         try:
-            results += care.resync(batch, args.apply)
+            results += care.resync(batch)
         except (urllib.error.URLError, TimeoutError) as error:  # report the batch and carry on
             detail = f"HTTP {error.code} {error.read().decode()[:300]}" if hasattr(error, "code") else str(error)
-            if args.apply:
-                # A request that timed out may still have been applied in Odoo
-                detail += " (run a dry run for these invoices to check)"
+            # A request that timed out may still have been applied in Odoo
+            detail += " (running these invoices again is safe)"
             results += [{"invoice": number, "status": f"error: {detail}"} for number in batch]
         print(f"{min(start + BATCH_SIZE, len(numbers))}/{len(numbers)} invoices", end="\r", file=sys.stderr)
 
     # Care lists the invoices it couldn't send first, so put the results back in the CSV's order
     position = {number: index for index, number in enumerate(numbers)}
     results.sort(key=lambda result: position.get(result["invoice"], len(numbers)))
-    out = args.out or ("resync_applied.csv" if args.apply else "resync_dry_run.csv")
-    with open(out, "w", newline="", encoding="utf-8") as file:
+    with open(args.out, "w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=COLUMNS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(results)
 
-    print(f"{len(results)} invoices, results in {out}")
+    print(f"{len(results)} invoices, results in {args.out}")
     print("Statuses:", dict(Counter(result["status"].split(":")[0] for result in results)))
     partial = [
         r["invoice"] for r in results if (r.get("old_payment_state"), r.get("new_payment_state")) == ("paid", "partial")
     ]
     print("Paid -> partial (follow up by hand):", ", ".join(partial) or "none")
     for result in results:
-        if not result["status"].startswith(("would update", "updated", "in sync")):
+        if not result["status"].startswith(("updated", "in sync")):
             print(f"  {result['invoice']}: {result['status']}")
 
 

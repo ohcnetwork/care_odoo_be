@@ -9,7 +9,7 @@ list of invoices.
 
 from care.emr.models.invoice import Invoice
 from care.emr.resources.invoice.spec import InvoiceStatusOptions
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
@@ -25,9 +25,9 @@ SYNCED_STATUSES = (InvoiceStatusOptions.issued.value, InvoiceStatusOptions.balan
 
 
 class InvoiceResyncRequest(BaseModel):
+    # Unknown fields are rejected, so a request still sending dry_run fails instead of applying
+    model_config = ConfigDict(extra="forbid")
     invoice_numbers: list[str] = Field(min_length=1, max_length=MAX_INVOICES)
-    # Only JSON true or false, so a value like 0 can't turn off the dry run
-    dry_run: StrictBool = True
 
 
 class IsSuperUser(BasePermission):
@@ -62,19 +62,17 @@ def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
     return invoices, problems
 
 
-def send_to_odoo(invoices: list[dict], dry_run: bool) -> list[dict]:
+def send_to_odoo(invoices: list[dict]) -> list[dict]:
     try:
         response = OdooConnector.call_api(
             "api/account/move/resync",
-            {"dry_run": dry_run, "invoices": invoices},
+            {"invoices": invoices},
         )
         return response["results"]
     except ValidationError as error:  # the connector raises this for HTTP and connection errors
         detail = error.detail[0] if isinstance(error.detail, list) else error.detail
-        status = f"error: {detail}"
-        if not dry_run:
-            # A call that timed out may still have been applied in Odoo
-            status += " (run a dry run for this invoice to check whether Odoo applied it)"
+        # A call that timed out may still have been applied in Odoo
+        status = f"error: {detail} (running it again is safe: an invoice already corrected shows in sync)"
         return [
             {"invoice": invoice["number"], "care_total": invoice["care_total"], "status": status}
             for invoice in invoices
@@ -83,8 +81,7 @@ def send_to_odoo(invoices: list[dict], dry_run: bool) -> list[dict]:
 
 class InvoiceResyncView(APIView):
     """
-    POST {"invoice_numbers": [...], "dry_run": true}, with up to MAX_INVOICES invoices. Dry run unless
-    dry_run is false.
+    POST {"invoice_numbers": [...]}, with up to MAX_INVOICES invoices.
     """
 
     permission_classes = [IsSuperUser]
@@ -98,5 +95,5 @@ class InvoiceResyncView(APIView):
             ) from error
         invoices, results = invoices_from_care(params.invoice_numbers)
         if invoices:
-            results += send_to_odoo(invoices, params.dry_run)
-        return Response({"dry_run": params.dry_run, "results": results})
+            results += send_to_odoo(invoices)
+        return Response({"results": results})
