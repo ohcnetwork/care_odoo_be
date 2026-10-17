@@ -45,7 +45,7 @@ def invoices_from_care(numbers: list[str]) -> tuple[list[dict], list[dict]]:
     resource = OdooInvoiceResource()
     invoices, problems = [], []
     for number in numbers:
-        matches = list(Invoice.objects.filter(number=number, deleted=False).select_related("facility", "patient"))
+        matches = list(Invoice.objects.filter(number=number).select_related("facility", "patient"))
         if len(matches) != 1:
             problems.append({"invoice": number, "status": f"not found in Care ({len(matches)} matching invoices)"})
             continue

@@ -21,23 +21,10 @@ import urllib.request
 from collections import Counter
 
 BATCH_SIZE = 10  # the endpoint's limit per request
-COLUMNS = [
-    "invoice",
-    "status",
-    "invoice_date",
-    "journal",
-    "lines_changed",
-    "care_total",
-    "old_untaxed",
-    "new_untaxed",
-    "old_tax",
-    "new_tax",
-    "old_total",
-    "new_total",
-    "old_payment_state",
-    "new_payment_state",
-    "changes",
-]
+COLUMNS = (
+    "invoice status invoice_date journal lines_changed care_total old_untaxed new_untaxed old_tax new_tax old_total "
+    "new_total old_payment_state new_payment_state changes"
+).split()
 
 
 def post(url, body, token=None):
