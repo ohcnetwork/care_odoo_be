@@ -7,7 +7,7 @@ from care.utils.rounding.rounding import care_round
 
 class SupplyDeliveryExtension(PlugExtension):
     extension_name = "supply_delivery_extension"
-    extension_version = "1.0.0"
+    extension_version = "1.1.0"
     resource_type = ExtensionResource.supply_delivery
     write_schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -20,17 +20,18 @@ class SupplyDeliveryExtension(PlugExtension):
                 "default": 0,
                 "title": "Free quantity",
                 "description": "items received",
-                "x-ui": {"control": "textbox"},
+                # Free quantity is counted in packs, so show it beside pack quantity
+                "x-ui": {"control": "textbox", "placement": {"after": "pack_quantity"}},
             },
             "purchase_discount": {
                 "type": "number",
                 "minimum": 0.00,
                 "default": 0.00,
                 "title": "Purchase Discount",
-                "x-ui": {"control": "textbox"},
+                "x-ui": {"control": "textbox", "placement": {"after": "purchase"}},
             },
         },
-        "additionalProperties": "false",
+        "additionalProperties": False,
     }
 
 
@@ -87,7 +88,7 @@ class SupplyDeliveryOrderExtension(PlugExtension):
                 "x-ui": {"control": "textbox"},
             },
         },
-        "additionalProperties": "false",
+        "additionalProperties": False,
     }
     retrieve_schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -116,7 +117,7 @@ class SupplyDeliveryOrderExtension(PlugExtension):
                 "title": "Total Price",
             },
         },
-        "additionalProperties": "false",
+        "additionalProperties": False,
     }
 
     @staticmethod
