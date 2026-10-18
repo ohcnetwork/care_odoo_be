@@ -181,12 +181,29 @@ def sync_organization_to_odoo(sender, instance, created, **kwargs):
         odoo_partner.sync_partner_to_odoo_api(instance)
 
 
+@receiver(pre_save, sender=DeliveryOrder)
+def capture_delivery_order_previous_status(sender, instance, **kwargs):
+    """
+    Capture the previous status before save to access it in the post_save signal.
+    """
+    if instance.pk:
+        instance._previous_status = (
+            DeliveryOrder.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
+        )
+    else:
+        instance._previous_status = None
+
+
 @receiver(post_save, sender=DeliveryOrder)
 def sync_delivery_order_to_odoo(sender, instance, created, **kwargs):
     """
-    Signal handler to sync delivery order to Odoo as a vendor bill when completed.
+    Signal handler to sync delivery order to Odoo as a vendor bill when it becomes completed.
     Ignores delivery orders with a patient relation (patient-specific deliveries).
     """
+    # Skip sync if the order was already completed, e.g. a later edit or the GRN number saved back as its name
+    if getattr(instance, "_previous_status", None) == SupplyDeliveryOrderStatusOptions.completed.value:
+        return
+
     if (
         instance.status == SupplyDeliveryOrderStatusOptions.completed.value
         and not instance.origin
@@ -194,6 +211,8 @@ def sync_delivery_order_to_odoo(sender, instance, created, **kwargs):
     ):
         odoo_delivery_order = OdooDeliveryOrderResource()
         odoo_delivery_order.sync_delivery_order_to_odoo_api(instance.external_id)
+        # The GRN number is saved as the name on a separate copy of the order, so reload it here
+        instance.refresh_from_db(fields=["name"])
 
 
 @receiver(post_save, sender=Product)
