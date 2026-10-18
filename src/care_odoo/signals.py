@@ -212,22 +212,30 @@ def capture_delivery_order_previous_status(sender, instance, **kwargs):
 @receiver(post_save, sender=DeliveryOrder)
 def sync_delivery_order_to_odoo(sender, instance, created, **kwargs):
     """
-    Signal handler to sync delivery order to Odoo as a vendor bill when it becomes completed.
-    Ignores delivery orders with a patient relation (patient-specific deliveries).
+    Signal handler to keep a delivery order's vendor bill in Odoo in line with the order's status.
+
+    Completing the order creates the bill, or updates it when the order was moved back to draft to add items.
+    Cancelling the order cancels the bill. Odoo refuses to change a posted bill, which blocks the status change.
+    Ignores delivery orders with a patient relation (patient-specific deliveries) or an origin (internal transfers).
     """
-    # Skip sync if the order was already completed, e.g. a later edit or the GRN number saved back as its name
-    if getattr(instance, "_previous_status", None) == SupplyDeliveryOrderStatusOptions.completed.value:
+    previous_status = getattr(instance, "_previous_status", None)
+    # Skip saves that don't change the status, e.g. a later edit or the GRN number saved back as its name
+    if previous_status == instance.status or instance.origin or instance.patient:
         return
 
-    if (
-        instance.status == SupplyDeliveryOrderStatusOptions.completed.value
-        and not instance.origin
-        and not instance.patient
-    ):
-        odoo_delivery_order = OdooDeliveryOrderResource()
+    odoo_delivery_order = OdooDeliveryOrderResource()
+    if instance.status == SupplyDeliveryOrderStatusOptions.completed.value:
         odoo_delivery_order.sync_delivery_order_to_odoo_api(instance.external_id)
         # The GRN number is saved as the name on a separate copy of the order, so reload it here
         instance.refresh_from_db(fields=["name"])
+    elif instance.status in [
+        SupplyDeliveryOrderStatusOptions.abandoned.value,
+        SupplyDeliveryOrderStatusOptions.entered_in_error.value,
+    ]:
+        # A draft order may have been completed before, so Odoo is asked even then
+        odoo_delivery_order.sync_delivery_order_cancel_to_odoo_api(instance.external_id, instance.status)
+    elif previous_status == SupplyDeliveryOrderStatusOptions.completed.value:
+        odoo_delivery_order.sync_delivery_order_reopen_to_odoo_api(instance.external_id)
 
 
 @receiver(post_save, sender=Product)

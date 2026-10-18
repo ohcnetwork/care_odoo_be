@@ -76,6 +76,18 @@ The following configuration variables are available for Care Odoo:
 
 The plugin will try to find the configuration from the settings first and then from environment variables.
 
+## Purchase deliveries and vendor bills
+
+Completing a delivery order from a supplier (not an internal transfer or a medication return) creates a draft
+vendor bill in Odoo. While that bill is still a draft:
+
+* **Mark as Draft** lets Care add items. Completing the order again updates the same bill with the order's items,
+  vendor bill number and vendor bill date. The bill keeps its GRN number.
+* **Mark as Abandoned** or **Mark as Entered in Error** cancels the bill.
+
+Once the bill is posted in Odoo, Care refuses both and names the bill in the error. To change the order after that,
+reset the bill to draft in Odoo first.
+
 ## License
 
 This project is licensed under the terms of the MIT license.
