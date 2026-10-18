@@ -68,6 +68,11 @@ class AccountMoveApiRequest(BaseModel):
     ip_bill_no: str | None = None
 
 
+class VendorBillApiRequest(BaseModel):
+    x_care_id: str
+    reason: str | None = None
+
+
 # TODO: Remove unused fields after Connector is updated
 class AccountMoveReturnApiRequest(BaseModel):
     x_care_id: str

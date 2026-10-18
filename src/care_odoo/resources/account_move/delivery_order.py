@@ -12,6 +12,7 @@ from care_odoo.resources.account_move.spec import (
     AccountMoveApiRequest,
     BillType,
     InvoiceItem,
+    VendorBillApiRequest,
 )
 from care_odoo.resources.product_category.spec import CategoryData
 from care_odoo.resources.product_product.spec import ProductData, TaxData
@@ -28,9 +29,22 @@ logger = logging.getLogger(__name__)
 
 
 class OdooDeliveryOrderResource:
+    def _is_excluded(self, delivery_order: DeliveryOrder) -> bool:
+        """Orders from internal suppliers aren't billed in Odoo."""
+        supplier = delivery_order.supplier
+        if supplier and str(supplier.external_id) in plugin_settings.CARE_ODOO_INTERNAL_SUPPLIER_ID:
+            logger.info(
+                "Skipping Odoo sync for delivery order %s: supplier %s is excluded",
+                delivery_order.external_id,
+                supplier.external_id,
+            )
+            return True
+        return False
+
     def sync_delivery_order_to_odoo_api(self, delivery_order_id: str) -> int | None:
         """
         Synchronize a Django delivery order to Odoo as a vendor bill using the custom addon API.
+        If the order was completed before and moved back to draft, Odoo updates its draft bill instead.
 
         Args:
             delivery_order_id: External ID of the Django delivery order
@@ -42,13 +56,7 @@ class OdooDeliveryOrderResource:
             external_id=delivery_order_id
         )
 
-        internal_supplier_id = plugin_settings.CARE_ODOO_INTERNAL_SUPPLIER_ID
-        if str(delivery_order.supplier.external_id) in internal_supplier_id:
-            logger.info(
-                "Skipping Odoo sync for delivery order %s: supplier %s is excluded",
-                delivery_order_id,
-                delivery_order.supplier.external_id,
-            )
+        if self._is_excluded(delivery_order):
             return None
 
         # Prepare partner data for supplier
@@ -174,3 +182,28 @@ class OdooDeliveryOrderResource:
             delivery_order.name = grn_number
             delivery_order.save(update_fields=["name"])
         return response["invoice"]["id"]
+
+    def sync_delivery_order_reopen_to_odoo_api(self, delivery_order_id: str) -> None:
+        """
+        Tell Odoo that a completed delivery order was moved back to draft, so more items can be added.
+        Odoo refuses if the order's vendor bill is already posted, which blocks the move in Care.
+        """
+        delivery_order = DeliveryOrder.objects.select_related("supplier").get(external_id=delivery_order_id)
+        if not self._is_excluded(delivery_order):
+            self._call_vendor_bill_api("reopen", delivery_order)
+
+    def sync_delivery_order_cancel_to_odoo_api(self, delivery_order_id: str, status: str) -> None:
+        """
+        Cancel the vendor bill of a cancelled delivery order in Odoo, if the order ever had one.
+        Odoo refuses if the bill is already posted, which blocks the cancellation in Care.
+        """
+        delivery_order = DeliveryOrder.objects.select_related("supplier").get(external_id=delivery_order_id)
+        if not self._is_excluded(delivery_order):
+            self._call_vendor_bill_api(
+                "cancel", delivery_order, f"the delivery order was marked {status.replace('_', ' ')}"
+            )
+
+    def _call_vendor_bill_api(self, action: str, delivery_order: DeliveryOrder, reason: str | None = None) -> None:
+        data = VendorBillApiRequest(x_care_id=str(delivery_order.external_id), reason=reason).model_dump()
+        logger.info("Odoo Vendor Bill %s Data: %s", action, data)
+        OdooConnector.call_api(f"api/account/move/vendor-bill/{action}", data)
