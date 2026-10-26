@@ -7,7 +7,7 @@ from care.utils.rounding.rounding import care_round
 
 class SupplyDeliveryExtension(PlugExtension):
     extension_name = "supply_delivery_extension"
-    extension_version = "1.1.0"
+    extension_version = "1.2.0"
     resource_type = ExtensionResource.supply_delivery
     write_schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -26,8 +26,10 @@ class SupplyDeliveryExtension(PlugExtension):
             "purchase_discount": {
                 "type": "number",
                 "minimum": 0.00,
+                "maximum": 100.00,
                 "default": 0.00,
                 "title": "Purchase Discount",
+                "description": "% off the purchase price",
                 "x-ui": {"control": "textbox", "placement": {"after": "purchase"}},
             },
         },
@@ -127,8 +129,11 @@ class SupplyDeliveryOrderExtension(PlugExtension):
         total_price = Decimal("0")
         for item in SupplyDelivery.objects.filter(order=resource, status__in=["in_progress", "completed"]):
             pack_qty = Decimal(str(item.supplied_item_pack_quantity or 0))
-            free_qty = Decimal(str(item.extensions.get("supply_delivery_extension", {}).get("free_quantity", 0)))
-            unit_pack_price = Decimal(str(item.total_purchase_price or 0))
+            extension = item.extensions.get("supply_delivery_extension", {})
+            free_qty = Decimal(str(extension.get("free_quantity", 0)))
+            # The purchase discount is a percentage off the pack price, taken before tax as on the Odoo bill
+            purchase_discount = Decimal(str(extension.get("purchase_discount") or 0))
+            unit_pack_price = Decimal(str(item.total_purchase_price or 0)) * (1 - purchase_discount / 100)
             if not item.supplied_item:
                 continue
             standard_pack_size = (
