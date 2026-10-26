@@ -88,6 +88,10 @@ vendor bill in Odoo. While that bill is still a draft:
 Once the bill is posted in Odoo, Care refuses both and names the bill in the error. To change the order after that,
 reset the bill to draft in Odoo first.
 
+An item's **Purchase Discount** is a percentage off its purchase price. It becomes the discount on the item's bill
+line, under the Odoo discount group "Purchase Discount". The order's Total Price in Care also takes it off before tax,
+as Odoo does.
+
 ## License
 
 This project is licensed under the terms of the MIT license.

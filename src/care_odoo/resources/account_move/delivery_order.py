@@ -11,6 +11,9 @@ from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move.spec import (
     AccountMoveApiRequest,
     BillType,
+    DiscountGroup,
+    DiscountType,
+    InvoiceDiscounts,
     InvoiceItem,
     VendorBillApiRequest,
 )
@@ -40,6 +43,14 @@ class OdooDeliveryOrderResource:
             )
             return True
         return False
+
+    def _purchase_discounts(self, extension: dict) -> list[InvoiceDiscounts] | None:
+        """The line's purchase discount, a percentage off the pack price, as its vendor bill line's discount."""
+        rate = extension.get("purchase_discount")
+        if not rate:
+            return None
+        group = DiscountGroup(x_care_id="purchase_discount", name="Purchase Discount")
+        return [InvoiceDiscounts(name=group.name, discount_group=group, discount_type=DiscountType.factor, rate=rate)]
 
     def sync_delivery_order_to_odoo_api(self, delivery_order_id: str) -> int | None:
         """
@@ -131,17 +142,16 @@ class OdooDeliveryOrderResource:
                     taxes=taxes,
                 )
 
+                extension = (supply_delivery.extensions or {}).get("supply_delivery_extension") or {}
                 item = InvoiceItem(
                     product_data=product_data,
                     quantity=str(
                         quantity
                     ),
-                    free_qty=str(
-                        ((supply_delivery.extensions or {}).get("supply_delivery_extension") or {}).get("free_quantity")
-                        or 0
-                    ),
+                    free_qty=str(extension.get("free_quantity") or 0),
                     sale_price=str(total_purchase_price),
                     x_care_id=str(supply_delivery.external_id),
+                    discounts=self._purchase_discounts(extension),
                 )
 
                 invoice_items.append(item)
