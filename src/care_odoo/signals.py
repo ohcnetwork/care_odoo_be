@@ -2,6 +2,7 @@ import logging
 
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
+from decimal import Decimal
 
 from care.emr.models.charge_item_definition import ChargeItemDefinition
 from care.emr.models.invoice import Invoice
@@ -9,7 +10,7 @@ from care.emr.models.organization import Organization
 from care.emr.models.payment_reconciliation import PaymentReconciliation
 from care.emr.models.product import Product
 from care.emr.models.resource_category import ResourceCategory
-from care.emr.models.supply_delivery import DeliveryOrder
+from care.emr.models.supply_delivery import DeliveryOrder, SupplyDelivery
 from care.emr.resources.inventory.supply_delivery.delivery_order import (
     SupplyDeliveryOrderStatusOptions,
 )
@@ -245,3 +246,23 @@ def sync_product_to_odoo(sender, instance, created, **kwargs):
     """
     odoo_product = OdooProductProductResource()
     odoo_product.sync_product_from_product_model(instance)
+
+def sync_product_purchase_price(product):
+    count = 0
+    purchase_price=Decimal("0")
+    for delivery in SupplyDelivery.objects.filter(supplied_item=product, status="completed"):
+        purchase_price+=delivery.total_purchase_price*item.supplied_item_pack_quantity
+        count+=supplied_item_pack_quantity
+    product.purchase_price=(purchase_price/count)/product.standard_pack_size
+    product.save(update_fields=["purchase_price"])
+
+@receiver(post_save, sender=Product)
+def sync_product_purchase_price_signal(sender, instance, created, **kwargs):
+    sync_product_purchase_price(instance)
+
+
+@receiver(post_save, sender=SupplyDelivery)
+def sync_supplied_item_purchase_price_signal(sender, instance, created, **kwargs):
+    if instance.order and instance.order.origin:
+        return
+    sync_product_purchase_price(instance.supplied_item)
