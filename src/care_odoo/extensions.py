@@ -29,7 +29,6 @@ class SupplyDeliveryExtension(PlugExtension):
                 "maximum": 100.00,
                 "default": 0.00,
                 "title": "Purchase Discount (%)",
-                "description": "% off the purchase price",
                 "x-ui": {"control": "textbox", "placement": {"after": "purchase"}},
             },
         },
