@@ -251,8 +251,16 @@ def sync_product_purchase_price(product):
     count = 0
     purchase_price=Decimal("0")
     for delivery in SupplyDelivery.objects.filter(supplied_item=product, status="completed"):
-        purchase_price+=delivery.total_purchase_price*item.supplied_item_pack_quantity
-        count+=supplied_item_pack_quantity
+        # The purchase discount is a percentage off the pack price, as on the vendor bill
+        purchase_discount = Decimal(
+            str(((delivery.extensions or {}).get("supply_delivery_extension") or {}).get("purchase_discount") or 0)
+        )
+        pack_price = Decimal(str(delivery.total_purchase_price or 0)) * (1 - purchase_discount / 100)
+        pack_quantity = delivery.supplied_item_pack_quantity or 0
+        purchase_price+=pack_price*pack_quantity
+        count+=pack_quantity
+    if not count or not product.standard_pack_size:
+        return
     product.purchase_price=(purchase_price/count)/product.standard_pack_size
     product.save(update_fields=["purchase_price"])
 
