@@ -5,11 +5,11 @@ from care.facility.models.facility import Facility
 from django.core.management.base import BaseCommand, CommandError
 
 from care_odoo.resources.stock.export import export_month
-from care_odoo.resources.stock.service import freeze_month, post_month
+from care_odoo.resources.stock.service import freeze_month, post_month, rebuild_months
 
 
 class Command(BaseCommand):
-    help = "Freeze a Care inventory month, optionally post product summaries and close in Odoo"
+    help = "Prepare/post monthly stock summaries, or rebuild and archive a previous series"
 
     def add_arguments(self, parser):
         parser.add_argument("--facility", required=True)
@@ -17,14 +17,31 @@ class Command(BaseCommand):
         parser.add_argument("--fiscal-month", required=True)
         parser.add_argument("--expected-opening-total")
         parser.add_argument("--post", action="store_true")
+        parser.add_argument(
+            "--rebuild", action="store_true", help="Rebuild from the saved opening through the latest processed month"
+        )
         parser.add_argument("--output", required=True)
 
     def handle(self, *args, **options):
         folder = Path(options["output"])
         folder.mkdir(parents=True, exist_ok=True)
         try:
+            facility = Facility.objects.get(external_id=options["facility"])
+            if options["rebuild"]:
+                if not options["post"]:
+                    raise ValueError("Use --post with --rebuild to replace the reports in both systems")
+                rows = rebuild_months(
+                    facility,
+                    options["month"],
+                    options["fiscal_month"],
+                    options["expected_opening_total"],
+                    self.stdout.write,
+                )
+                for row in rows:
+                    export_month(row, folder / str(row.revision) / row.month)
+                return
             row = freeze_month(
-                Facility.objects.get(external_id=options["facility"]),
+                facility,
                 options["month"],
                 options["fiscal_month"],
                 options["expected_opening_total"],

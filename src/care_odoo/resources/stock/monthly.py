@@ -20,8 +20,35 @@ def quantities(dimensions):
     return dict(totals)
 
 
+def stock_details(plan):
+    """Send report dimensions, without creating native locations or lot moves."""
+    detail = plan["evidence"]
+    locations = {row["uuid"]: row["name"] for row in detail["locations"]}
+    batches = {row["uuid"]: row for row in detail["batches"]}
+    incoming = {(row["batch_uuid"], row["location_uuid"]): row["quantity"] for row in detail["in_transit_closing"]}
+    return [
+        {
+            "item_uuid": row["item_uuid"],
+            "batch_uuid": row["batch_uuid"],
+            "batch": batches[row["batch_uuid"]]["lot_number"],
+            "expiry": batches[row["batch_uuid"]].get("expiry"),
+            "location_uuid": row["location_uuid"],
+            "location": locations[row["location_uuid"]],
+            "quantity": row["quantity"],
+            "incoming_quantity": incoming.get((row["batch_uuid"], row["location_uuid"]), "0"),
+        }
+        for row in detail["closing"]
+    ]
+
+
 def build_monthly_plan(
-    facility, month, fiscal_month, progress=lambda _message: None, approved_opening=None, previous_close=None
+    facility,
+    month,
+    fiscal_month,
+    progress=lambda _message: None,
+    approved_opening=None,
+    previous_close=None,
+    period=None,
 ):
     if (approved_opening is None) == (previous_close is None):
         raise ValueError("Supply either the approved first opening or the previous close")
@@ -29,6 +56,12 @@ def build_monthly_plan(
         raise ValueError("Close months consecutively")
     if previous_close and previous_close.get("quantity_basis") != "owned":
         raise ValueError("The prior close uses the old availability basis; replay a separate owned-stock ledger")
+    period = period or {
+        "period_key": f"care-monthly:{facility.external_id}:{fiscal_month}",
+        "facility_uuid": str(facility.external_id),
+        "month": fiscal_month,
+        "mode": "monthly",
+    }
     detailed = build_period_plan(facility, month, progress, approved_opening, previous_close, owned_stock=True)
     opening, closing = quantities(detailed["opening"]), quantities(detailed["closing"])
     if previous_close:
@@ -86,7 +119,7 @@ def build_monthly_plan(
             else end - timedelta(seconds={"receipts": 4, "recoveries": 3, "issues": 2}[phase])
         )
         event = {
-            "key": f"care-monthly:{facility.external_id}:{month}:{phase}:{item}:{source}:{dest}:{kind}",
+            "key": f"{period['period_key']}:{month}:{phase}:{item}:{source}:{dest}:{kind}",
             "item_uuid": item,
             "source": source,
             "destination": dest,
@@ -121,12 +154,7 @@ def build_monthly_plan(
     if differences:
         raise ValueError(f"Recorded movement totals do not explain Care closing stock: {differences}")
     return {
-        "period": {
-            "period_key": f"care-monthly:{facility.external_id}:{fiscal_month}",
-            "facility_uuid": str(facility.external_id),
-            "month": fiscal_month,
-            "mode": "monthly",
-        },
+        "period": period,
         "month": month,
         "opening_source": approved_opening,
         "opening_at": detailed["opening_at"],

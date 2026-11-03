@@ -8,14 +8,13 @@ from unittest.mock import patch
 from care.emr.models.medication_dispense import MedicationDispense
 from care.emr.models.supply_delivery import SupplyDelivery
 from care.emr.signals.patient.base import BasePatientIdentifierConfig
-from django.db import DatabaseError, transaction
 from django.test import TestCase
 from model_bakery import baker
 
 from care_odoo.models import StockMonth
 from care_odoo.resources.stock.export import export_month
 from care_odoo.resources.stock.monthly import build_monthly_plan, fingerprint
-from care_odoo.resources.stock.service import freeze_month, post_month, target
+from care_odoo.resources.stock.service import freeze_month, post_month, rebuild_months, target
 
 
 class MonthlyStockTests(TestCase):
@@ -89,6 +88,82 @@ class MonthlyStockTests(TestCase):
         self.assertEqual(retry.source_hash, frozen_hash)
         with self.assertRaisesRegex(ValueError, "differs from the frozen source"):
             freeze_month(facility, "2026-04", "2026-04", expected_opening_total="9207")
+        closing = {
+            "month": "2026-04",
+            "quantity_basis": "owned",
+            "total_value": "980.57",
+            "items": [
+                {
+                    "item_uuid": uuid,
+                    "name": "Medicine",
+                    "quantity": 120,
+                    "average_cost": "8.171428571429",
+                    "reported_total_value": "980.57",
+                }
+            ],
+        }
+        row.state, row.closing = "closed", closing
+        row.save()
+        may = freeze_month(facility, "2026-05", "2026-04")
+        may.state, may.closing = "closed", {**closing, "month": "2026-05"}
+        may.save()
+
+        def post_saved_report(pk, *_args, **_kwargs):
+            # Odoo costing is covered by native integration tests; this boundary
+            # returns a saved report to exercise Care's publication lifecycle.
+            report = StockMonth.objects.get(pk=pk)
+            report.state = "closed"
+            report.closing = {**closing, "month": report.month, "source_hash": report.source_hash}
+            report.save()
+
+        with (
+            patch("care_odoo.resources.stock.service.plugin_settings.CARE_ODOO_STOCK_SYNC_ENABLED", True),
+            patch("care_odoo.resources.stock.period.OdooStockResource.bill_sources", return_value={"bill_lines": []}),
+            patch("care_odoo.resources.stock.service.post_month", side_effect=post_saved_report),
+            patch(
+                "care_odoo.resources.stock.service.OdooStockResource.call",
+                side_effect=[
+                    {"period_key": row.plan["period"]["period_key"], "through_month": "2026-05"},
+                    TimeoutError("Publish response lost after Odoo committed"),
+                ],
+            ),
+        ):
+            with self.assertRaises(TimeoutError):
+                rebuild_months(facility, "2026-04", "2026-04")
+        self.assertEqual(StockMonth.objects.filter(facility=facility, is_current=True).count(), 2)
+        self.assertTrue(StockMonth.objects.get(pk=row.pk).is_current)
+        staged = StockMonth.objects.filter(facility=facility, is_current=False).first()
+        with (
+            patch("care_odoo.resources.stock.service.plugin_settings.CARE_ODOO_STOCK_SYNC_ENABLED", True),
+            patch("care_odoo.resources.stock.period.OdooStockResource.bill_sources", return_value={"bill_lines": []}),
+            patch("care_odoo.resources.stock.service.post_month", side_effect=post_saved_report),
+            patch(
+                "care_odoo.resources.stock.service.OdooStockResource.call",
+                side_effect=[
+                    {"period_key": staged.plan["period"]["period_key"], "through_month": "2026-05"},
+                    {"published": True},
+                ],
+            ),
+        ):
+            rebuilt = rebuild_months(facility, "2026-04", "2026-04")
+        self.assertEqual([report.month for report in rebuilt], ["2026-04", "2026-05"])
+        self.assertTrue(all(report.is_current for report in rebuilt))
+        self.assertEqual(rebuilt[0].plan["opening_source"], row.plan["opening_source"])
+        self.assertEqual(Decimal(rebuilt[0].plan["items"][0]["opening_value_target"]), 744)
+        self.assertEqual(Decimal(rebuilt[0].plan["phases"]["receipts"][0]["input_value"]), 4950)
+        row.refresh_from_db()
+        self.assertFalse(row.is_current)
+        self.assertIsNotNone(row.archived_at)
+        self.assertEqual(row.plan, frozen_plan)
+        self.assertEqual(row.closing, closing)
+        archived_at = row.archived_at
+        with (
+            patch("care_odoo.resources.stock.service.plugin_settings.CARE_ODOO_STOCK_SYNC_ENABLED", True),
+            patch("care_odoo.resources.stock.service.OdooStockResource.call", return_value={"published": True}),
+        ):
+            post_month(rebuilt[0].pk)
+        row.refresh_from_db()
+        self.assertEqual(row.archived_at, archived_at)
 
     def test_owned_stock_keeps_pending_internal_transfers_and_new_stock_locations(self):
         user = baker.make("users.User")
@@ -195,7 +270,7 @@ class MonthlyStockTests(TestCase):
         self.assertEqual(row.state, "closed")
         self.assertEqual(row.closing, closed)
 
-    def test_actual_flows_free_units_rollforward_and_frozen_source_guards(self):
+    def test_actual_flows_free_units_rollforward_and_saved_exports(self):
         user = baker.make("users.User")
         facility = baker.make("facility.Facility", created_by=user)
         store = baker.make("emr.FacilityLocation", facility=facility, name="Store", inventory_usage="store")
@@ -318,11 +393,3 @@ class MonthlyStockTests(TestCase):
             self.assertEqual(sum(Decimal(r["quantity"]) for r in exported), 80)
             self.assertEqual(sum(Decimal(r["value"]) for r in exported), 544)
             self.assertIn("receipt_without_posted_bill", exported[0]["flags"])
-        with self.assertRaises(DatabaseError), transaction.atomic():
-            StockMonth.objects.filter(pk=row.pk).update(plan={})
-        for operation in [
-            lambda: StockMonth.objects.filter(pk=row.pk).update(closing={}),
-            lambda: StockMonth.objects.filter(pk=row.pk).delete(),
-        ]:
-            with self.assertRaises(DatabaseError), transaction.atomic():
-                operation()

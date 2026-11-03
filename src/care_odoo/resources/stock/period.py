@@ -101,6 +101,7 @@ def build_period_plan(
             "product_knowledge__base_unit",
             "charge_item_definition__external_id",
             "purchase_price",
+            "expiration_date",
             "batch",
         )
     }
@@ -578,6 +579,7 @@ def build_period_plan(
                 "uuid": str(products[pid]["external_id"]),
                 "item_uuid": str(products[pid]["product_knowledge__external_id"]),
                 "lot_number": (products[pid]["batch"] or {}).get("lot_number"),
+                "expiry": products[pid]["expiration_date"].isoformat() if products[pid]["expiration_date"] else None,
                 "care_product_id": pid,
                 "opening_price_basis": batch_basis[pid],
                 "opening_batch_rate": str(batch_rate[pid]),

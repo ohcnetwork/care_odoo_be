@@ -10,13 +10,15 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--facility", required=True)
         parser.add_argument("--month", required=True)
+        parser.add_argument("--revision", help="Export a saved previous revision instead of the current report")
         parser.add_argument("--output", required=True)
 
     def handle(self, *args, **options):
         try:
-            row = StockMonth.objects.get(
+            reports = StockMonth.objects.filter(
                 facility__external_id=options["facility"], month=options["month"], state="closed"
             )
+            row = reports.get(revision=options["revision"]) if options["revision"] else reports.get(is_current=True)
         except StockMonth.DoesNotExist as error:
             raise CommandError("No issued inventory snapshot exists for this facility/month") from error
         export_month(row, options["output"])

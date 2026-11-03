@@ -120,13 +120,19 @@ def export_month(row, output):
             )
     write(
         "stock-by-batch-location.csv",
-        rows,
+        [
+            {"month": row.month, "source_hash": row.source_hash, "flags": ";".join(sorted(flags[d["item_uuid"]])), **d}
+            for d in close["details"]
+        ]
+        if "details" in close
+        else [{**d, "expiry": None} for d in rows],
         [
             "month",
             "item",
             "item_uuid",
             "batch_uuid",
             "batch",
+            "expiry",
             "location",
             "location_uuid",
             "quantity",
@@ -166,6 +172,9 @@ def export_month(row, output):
         json.dumps(
             {
                 "month": row.month,
+                "revision": str(row.revision),
+                "is_current": row.is_current,
+                "archived_at": row.archived_at.isoformat() if row.archived_at else None,
                 "facility_uuid": plan["period"]["facility_uuid"],
                 "source_hash": row.source_hash,
                 "frozen_at": row.created_at.isoformat(),
