@@ -1,13 +1,13 @@
 import logging
 
-from django.utils.dateparse import parse_datetime
-
 from care.emr.models.supply_delivery import DeliveryOrder, SupplyDelivery
 from care.emr.resources.inventory.supply_delivery.spec import (
     SupplyDeliveryStatusOptions,
 )
+from django.utils.dateparse import parse_datetime
 
 from care_odoo.connector.connector import OdooConnector
+from care_odoo.resources.account_move.purchase import purchase_metadata
 from care_odoo.resources.account_move.spec import (
     AccountMoveApiRequest,
     BillType,
@@ -20,7 +20,6 @@ from care_odoo.resources.res_partner.spec import PartnerData, PartnerType
 from care_odoo.resources.utils import (
     format_datetime_to_local_date,
     get_base_price_from_definition,
-    get_purchase_price_from_definition,
     get_taxes_from_definition,
 )
 from care_odoo.settings import plugin_settings
@@ -77,6 +76,7 @@ class OdooDeliveryOrderResource:
             order=delivery_order, status=SupplyDeliveryStatusOptions.completed.value
         ).select_related(
             "supplied_item",
+            "supplied_item__facility",
             "supplied_item__charge_item_definition",
             "supplied_item__charge_item_definition__category",
             "supplied_item__charge_item_definition__category__parent",
@@ -133,15 +133,14 @@ class OdooDeliveryOrderResource:
 
                 item = InvoiceItem(
                     product_data=product_data,
-                    quantity=str(
-                        quantity
-                    ),
+                    quantity=str(quantity),
                     free_qty=str(
                         ((supply_delivery.extensions or {}).get("supply_delivery_extension") or {}).get("free_quantity")
                         or 0
                     ),
                     sale_price=str(total_purchase_price),
                     x_care_id=str(supply_delivery.external_id),
+                    care_purchase=purchase_metadata(supply_delivery),
                 )
 
                 invoice_items.append(item)
@@ -172,7 +171,7 @@ class OdooDeliveryOrderResource:
             grn_sequence_code=plugin_settings.CARE_ODOO_GRN_SEQUENCE_MAP.get(
                 str(delivery_order.destination.external_id)
             ),
-        ).model_dump()
+        ).model_dump(mode="json")
 
         logger.info("Odoo Delivery Order Data: %s", data)
 

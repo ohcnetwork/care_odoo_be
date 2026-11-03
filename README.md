@@ -88,6 +88,33 @@ vendor bill in Odoo. While that bill is still a draft:
 Once the bill is posted in Odoo, Care refuses both and names the bill in the error. To change the order after that,
 reset the bill to draft in Odoo first.
 
+## Monthly inventory valuation
+
+See [monthly inventory valuation](docs/stock-valuation.md) for the Care opening snapshot,
+quantity rules, native Odoo costing, report revisions, rebuilds, configuration and tests.
+
+## Monthly purchase-price API
+
+Completed purchase receipts now send Care item/batch identities, the historical pack
+size and the base unit to Odoo. Its `GET /api/purchases/monthly-prices` endpoint
+returns monthly purchase-only averages pooled across batches, plus batch-level
+prices keyed by Care product ID/UUID. Free units are included once; final Odoo bill
+values supply prices after discounts, excluding GST. These prices do not include
+opening inventory and are distinct from inventory AVCO.
+
+After upgrading the Odoo connector, backfill older bill-line identities with:
+
+```sh
+python manage.py sync_odoo_purchase_metadata --facility <facility-UUID>
+python manage.py sync_odoo_purchase_metadata --facility <facility-UUID> --post
+```
+
+The first command is a local dry run. `--post` updates only metadata on receipt-linked
+Odoo lines and reports missing/ambiguous links. It does not resend financial values,
+change bill states or post inventory movements. Repeating it is safe. Lines without
+historical pack sizes stay unmapped rather than guessing from current product data.
+The API reports coverage and flags quantity mismatches for manual review.
+
 ## License
 
 This project is licensed under the terms of the MIT license.

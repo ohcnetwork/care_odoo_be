@@ -1,5 +1,4 @@
 import base64
-import json
 import logging
 
 import requests
@@ -43,23 +42,17 @@ class OdooConnector:
             "db": plugin_settings.CARE_ODOO_DATABASE,
         }
 
-        # Log curl equivalent for debugging
         try:
-            headers_str = " ".join([f"-H '{k}: {v}'" for k, v in headers.items()])
-            data_str = f"-d '{json.dumps(data)}'" if data else ""
-            curl_command = f"curl -X {method} {headers_str} {data_str} '{url}'"
-            logger.info("Equivalent curl command:\n%s", curl_command)
-        except Exception as e:
-            logger.info(e)
-
-        try:
-            response = requests.request(method, url, headers=headers, json=data, timeout=30)
-            logger.info("Odoo API Response Status Code: %s", url)
-            logger.info("Odoo API Response Status: %s", response.status_code)
-            logger.info("Odoo API Raw Response: %s", response.text)
+            response = requests.request(
+                method,
+                url,
+                headers=headers,
+                json=data,
+                timeout=plugin_settings.CARE_ODOO_REQUEST_TIMEOUT,
+            )
+            logger.info("Odoo API %s %s returned %s", method, endpoint, response.status_code)
 
             response_json = response.json()
-            logger.info("Odoo API Response JSON: %s", response_json)
 
             if not response.ok:
                 error_msg = response_json.get("message", str(response.reason))

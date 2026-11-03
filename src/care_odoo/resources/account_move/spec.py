@@ -1,5 +1,6 @@
 from decimal import Decimal
 from enum import Enum
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +30,19 @@ class AgentData(BaseModel):
     x_care_id: str
 
 
+class CarePurchaseData(BaseModel):
+    facility_uuid: UUID
+    item_uuid: UUID
+    item_name: str = Field(min_length=1)
+    product_id: int = Field(gt=0)
+    product_uuid: UUID
+    batch: str = ""
+    charge_definition_uuid: UUID
+    pack_size: int = Field(gt=0)
+    base_unit: dict[str, str] = Field(min_length=1)
+    received_base_units: Decimal = Field(ge=0, allow_inf_nan=False)
+
+
 class InvoiceItem(BaseModel):
     product_data: ProductData
     quantity: str = Field(default="1.0")
@@ -37,6 +51,7 @@ class InvoiceItem(BaseModel):
     x_care_id: str
     agent_id: str | None = None
     discounts: list[InvoiceDiscounts] | None = None
+    care_purchase: CarePurchaseData | None = None
 
 
 class BillType(str, Enum):
