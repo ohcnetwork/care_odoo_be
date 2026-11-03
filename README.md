@@ -88,6 +88,11 @@ vendor bill in Odoo. While that bill is still a draft:
 Once the bill is posted in Odoo, Care refuses both and names the bill in the error. To change the order after that,
 reset the bill to draft in Odoo first.
 
+## Monthly inventory valuation
+
+See [monthly inventory valuation](docs/stock-valuation.md) for the approved Excel opening,
+quantity rules, native Odoo costing, frozen exports, configuration and tests.
+
 ## License
 
 This project is licensed under the terms of the MIT license.

@@ -9,6 +9,19 @@ from care_odoo.resources.account_move_payment.spec import AccountPaymentCancelAp
 logger = logging.getLogger(__name__)
 
 
+@shared_task(name="care_odoo.tasks.close_stock_month")
+def close_stock_month(facility_external_id: str, month: str, fiscal_month: str) -> dict:
+    """Opt-in monthly job, after the first approved opening has been frozen explicitly."""
+    from care.facility.models.facility import Facility
+
+    from care_odoo.resources.stock.service import freeze_month, post_month
+
+    facility = Facility.objects.get(external_id=facility_external_id)
+    row = freeze_month(facility, month, fiscal_month)
+    snapshot = post_month(row.pk)
+    return {"month": month, "total_value": snapshot["total_value"], "source_hash": row.source_hash}
+
+
 @shared_task(
     bind=True,
     name="care_odoo.tasks.verify_payment_exists_or_cleanup",

@@ -43,7 +43,7 @@ class PluginSettings:  # pragma: no cover
 
     def __getattr__(self, attr) -> Any:
         if attr not in self.defaults:
-            raise AttributeError("Invalid setting: '%s'" % attr)
+            raise AttributeError(f"Invalid setting: '{attr}'")
 
         # Try to find the setting from user settings, then from environment variables
         val = self.defaults[attr]
@@ -98,6 +98,9 @@ class PluginSettings:  # pragma: no cover
 
 # Default Odoo config variables
 DEFAULTS = {
+    "CARE_ODOO_AUTO_SYNC_ENABLED": True,
+    "CARE_ODOO_STOCK_SYNC_ENABLED": False,
+    "CARE_ODOO_REQUEST_TIMEOUT": 120,
     "CARE_ODOO_HOST": "",
     "CARE_ODOO_PORT": "",
     "CARE_ODOO_PROTOCOL": "",
