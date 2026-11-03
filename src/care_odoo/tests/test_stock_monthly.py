@@ -15,7 +15,7 @@ from model_bakery import baker
 from care_odoo.models import StockMonth
 from care_odoo.resources.stock.export import export_month
 from care_odoo.resources.stock.monthly import build_monthly_plan, fingerprint
-from care_odoo.resources.stock.service import post_month, target
+from care_odoo.resources.stock.service import freeze_month, post_month, target
 
 
 class MonthlyStockTests(TestCase):
@@ -23,6 +23,72 @@ class MonthlyStockTests(TestCase):
         for config in BasePatientIdentifierConfig.__subclasses__():
             config.CACHED_CONFIG.clear()
         super().tearDown()
+
+    def test_opening_is_captured_from_care_and_frozen_against_later_price_changes(self):
+        user = baker.make("users.User")
+        facility = baker.make("facility.Facility", created_by=user)
+        store = baker.make("emr.FacilityLocation", facility=facility, name="Store", inventory_usage="store")
+        ward = baker.make("emr.FacilityLocation", facility=facility, name="Ward", inventory_usage="none")
+        consumption = baker.make("emr.FacilityLocation", facility=facility, inventory_usage="consumption")
+        item = baker.make("emr.ProductKnowledge", facility=facility, name="Medicine")
+        product = baker.make("emr.Product", facility=facility, product_knowledge=item, purchase_price=8)
+        inventory = baker.make("emr.InventoryItem", product=product, location=store)
+        consumed = baker.make("emr.InventoryItem", product=product, location=consumption)
+        for origin, destination, source, status, quantity, created in [
+            (None, store, inventory, "completed", 100, datetime(2026, 3, 10, tzinfo=UTC)),
+            (store, ward, inventory, "in_progress", 20, datetime(2026, 3, 15, tzinfo=UTC)),
+            (consumption, ward, consumed, "in_progress", 3, datetime(2026, 3, 20, tzinfo=UTC)),
+            (None, store, inventory, "completed", 50, datetime(2026, 4, 10, tzinfo=UTC)),
+        ]:
+            order = baker.make("emr.DeliveryOrder", origin=origin, destination=destination, patient=None)
+            delivery = baker.make(
+                SupplyDelivery,
+                order=order,
+                supplied_item=product,
+                supplied_inventory_item=source,
+                supplied_item_quantity=quantity,
+                supplied_item_pack_size=1,
+                status=status,
+                extensions={},
+            )
+            SupplyDelivery.objects.filter(pk=delivery.pk).update(created_date=created)
+        patient = baker.make("emr.Patient")
+        encounter = baker.make("emr.Encounter", patient=patient, facility=facility)
+        dispense_order = baker.make("emr.DispenseOrder", patient=patient, facility=facility, location=store)
+        for quantity, month in [(10, 3), (20, 4)]:
+            dispense = baker.make(
+                MedicationDispense,
+                item=inventory,
+                location=store,
+                patient=patient,
+                encounter=encounter,
+                order=dispense_order,
+                quantity=quantity,
+                status="completed",
+            )
+            MedicationDispense.objects.filter(pk=dispense.pk).update(created_date=datetime(2026, month, 21, tzinfo=UTC))
+        # The historical report values 93 priced units at 8. Correct owned
+        # quantities exclude the three pending returns from consumption.
+        with self.assertRaisesRegex(ValueError, "differs from the approved total"):
+            freeze_month(facility, "2026-04", "2026-04", expected_opening_total="745")
+        self.assertFalse(StockMonth.objects.filter(facility=facility).exists())
+        with patch("care_odoo.resources.stock.period.OdooStockResource.bill_sources", return_value={"bill_lines": []}):
+            row = freeze_month(facility, "2026-04", "2026-04", expected_opening_total="744")
+        uuid = str(item.external_id)
+        self.assertEqual(Decimal(row.plan["opening_quantities"][uuid]), 90)
+        self.assertEqual(Decimal(row.plan["closing_quantities"][uuid]), 120)
+        self.assertEqual(Decimal(row.plan["items"][0]["opening_value_target"]), 744)
+        self.assertEqual(row.plan["opening_source"]["as_of"], "2026-03-31")
+        self.assertEqual(row.plan["opening_source"]["total"], "744.00")
+        self.assertEqual(sum(Decimal(r["value"]) for r in row.plan["opening_source"]["rows"]), 744)
+        frozen_plan, frozen_hash = row.plan, row.source_hash
+        product.purchase_price = 99
+        product.save(update_fields=["purchase_price"])
+        retry = freeze_month(facility, "2026-04", "2026-04", expected_opening_total="744")
+        self.assertEqual(retry.plan, frozen_plan)
+        self.assertEqual(retry.source_hash, frozen_hash)
+        with self.assertRaisesRegex(ValueError, "differs from the frozen source"):
+            freeze_month(facility, "2026-04", "2026-04", expected_opening_total="9207")
 
     def test_owned_stock_keeps_pending_internal_transfers_and_new_stock_locations(self):
         user = baker.make("users.User")

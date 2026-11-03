@@ -9,38 +9,43 @@ Install the companion `care_connector` stock API in Odoo 19, run Django migratio
 and configure the existing Odoo connection. The service user needs Inventory
 Administrator access and access to vendor bills in the intended company.
 
-## Opening stock from Excel
+## Opening stock from Care
 
-Supply an approved `.xlsx` workbook to the Care command. The first sheet must have
-these columns in this order, with fixed values and no formulas:
+The first month captures the previous day's facility stock report directly from
+Care. For an April start, this is the 31 March closing. A Metabase export of that
+report is unnecessary: there is no file upload or Metabase connection to configure.
 
-| location | name | total_qty | stock_value |
-| --- | --- | ---: | ---: |
-| Main store | Example medicine | 100 | 800.00 |
+Supply `--expected-opening-total` once to check the approved financial closing.
+The command stops if the Care report differs; it never rescales values to force a
+match. The report rows, hash and allocated opening values are frozen in Care and
+exported as `opening-source.json`. A retry uses that saved source even if prices
+have since changed.
 
-The expected total is mandatory. Care freezes the workbook hash and allocated
-opening values. Names match Care item names; the legacy `Internal Stock Update `
-prefix is removed when matching. Duplicate legacy/current item names share their
-approved value in proportion to their Care opening quantities. Quantity differences
-and items absent from the workbook remain visible in the exception export.
+Opening values reproduce the historical report's Care prices and original status
+rules, including its priced-row filter and pending-return treatment. This preserves
+the approved financial baseline. Owned quantities are reconstructed independently
+using the corrected rules below, so unpriced stock is retained and pending returns
+from non-stock locations do not become owned stock. Any quantity differences and
+unvalued items remain visible in the exception export.
 
-Care's reconstructed quantities remain authoritative. The approved amount is
-allocated over those quantities without changing them. The first run posts the
-opening once; later months carry the previous close. Do not separately import the
-same opening into the integration's Odoo warehouse.
+The legacy `Internal Stock Update ` prefix is removed when matching item names.
+Duplicate legacy/current names share their approved value in proportion to their
+Care opening quantities. The first run posts the opening once; later months carry
+the previous close. Do not separately import the same opening into Odoo.
 
 Freeze and inspect the first month before posting:
 
 ```sh
 python manage.py close_stock_month --facility <facility-uuid> \
   --month 2026-04 --fiscal-month 2026-04 \
-  --opening-report /path/opening.xlsx --expected-opening-total 800.00 \
+  --expected-opening-total 800.00 \
   --output /path/reports/2026-04
 ```
 
-The matching Odoo opening quantities and per-item values are checked against the
-approved allocation. The Excel import belongs to Care; Odoo receives native stock
-records through the connector. No additional spreadsheet library is required.
+Odoo's opening quantities and per-item values are checked against the approved
+allocation. Opening capture uses current Care records and prices, not archived
+price versions. Review a mismatch with the approved closing before the first
+freeze. Existing frozen sources and issued reports are never regenerated.
 
 ## Closing and exporting
 

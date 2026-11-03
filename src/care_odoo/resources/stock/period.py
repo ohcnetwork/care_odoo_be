@@ -74,7 +74,7 @@ def build_period_plan(
         stores = {key for key, row in locations.items() if str(row["external_id"]) in scope}
         if len(stores) != len(scope):
             raise ValueError("A location from the previous closed period is missing")
-    if approved_opening:
+    if approved_opening and not owned_stock:
         opening_locations = {r["location"] for r in approved_opening["rows"]}
         stores |= {
             key

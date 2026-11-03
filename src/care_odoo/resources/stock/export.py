@@ -16,6 +16,8 @@ def export_month(row, output):
     folder.mkdir(parents=True, exist_ok=True)
     plan, close = row.plan, row.closing
     (folder / "closing.json").write_text(json.dumps(close, indent=2))
+    if plan.get("opening_source"):
+        (folder / "opening-source.json").write_text(json.dumps(plan["opening_source"], indent=2))
 
     def write(name, records, fields):
         with (folder / name).open("w", newline="") as stream:

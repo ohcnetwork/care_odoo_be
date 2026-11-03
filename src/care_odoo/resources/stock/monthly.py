@@ -128,6 +128,7 @@ def build_monthly_plan(
             "mode": "monthly",
         },
         "month": month,
+        "opening_source": approved_opening,
         "opening_at": detailed["opening_at"],
         "closing_at": detailed["closing_at"],
         "items": list(items.values()),

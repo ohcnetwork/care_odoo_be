@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from care_odoo.models import StockMonth
 from care_odoo.resources.stock.monthly import build_monthly_plan, fingerprint
+from care_odoo.resources.stock.opening import capture_opening_report, opening_total
 from care_odoo.resources.stock.period import chunks, month_bounds
 from care_odoo.resources.stock.resource import OdooStockResource
 from care_odoo.settings import plugin_settings
@@ -27,7 +28,7 @@ def lock(facility_id):
 
 
 @transaction.atomic
-def freeze_month(facility, month, fiscal_month, approved_opening=None, progress=lambda _message: None):
+def freeze_month(facility, month, fiscal_month, expected_opening_total=None, progress=lambda _message: None):
     lock(facility.pk)
     if month_bounds(month)[1] > timezone.now():
         raise ValueError("A month cannot be closed before it has ended")
@@ -35,21 +36,25 @@ def freeze_month(facility, month, fiscal_month, approved_opening=None, progress=
     if existing:
         if existing.target != target() or existing.fiscal_month != fiscal_month:
             raise ValueError("The frozen month belongs to another Odoo target or fiscal opening")
-        if (
-            approved_opening
-            and existing.plan["metadata"]["approved_opening"]["source_sha256"] != approved_opening["source_sha256"]
-        ):
-            raise ValueError("The approved opening differs from the frozen source")
+        if expected_opening_total is not None and month != fiscal_month:
+            raise ValueError("Only the first month accepts an expected opening total")
+        if expected_opening_total is not None and Decimal(
+            existing.plan["metadata"]["approved_opening"]["total"]
+        ) != opening_total(expected_opening_total):
+            raise ValueError("The approved opening total differs from the frozen source")
         return existing
     prior = StockMonth.objects.filter(facility=facility, month__lt=month).order_by("-month").first()
     if prior and (prior.state != "closed" or prior.target != target() or prior.fiscal_month != fiscal_month):
         raise ValueError("Close the previous month on the same Odoo target first")
-    if prior and approved_opening:
+    if prior and expected_opening_total is not None:
         raise ValueError("Carry forward the previous close; do not import another opening")
     if not prior and month != fiscal_month:
         raise ValueError("Begin with the approved fiscal opening month")
     if StockMonth.objects.filter(facility=facility, month__gt=month).exists():
         raise ValueError("A later month already exists")
+    approved_opening = (
+        capture_opening_report(facility, month_bounds(month)[0], expected_opening_total) if not prior else None
+    )
     plan = build_monthly_plan(
         facility, month, fiscal_month, progress, approved_opening, prior.closing if prior else None
     )

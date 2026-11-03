@@ -5,7 +5,6 @@ from care.facility.models.facility import Facility
 from django.core.management.base import BaseCommand, CommandError
 
 from care_odoo.resources.stock.export import export_month
-from care_odoo.resources.stock.opening import load_opening_report
 from care_odoo.resources.stock.service import freeze_month, post_month
 
 
@@ -16,7 +15,6 @@ class Command(BaseCommand):
         parser.add_argument("--facility", required=True)
         parser.add_argument("--month", required=True)
         parser.add_argument("--fiscal-month", required=True)
-        parser.add_argument("--opening-report")
         parser.add_argument("--expected-opening-total")
         parser.add_argument("--post", action="store_true")
         parser.add_argument("--output", required=True)
@@ -25,19 +23,16 @@ class Command(BaseCommand):
         folder = Path(options["output"])
         folder.mkdir(parents=True, exist_ok=True)
         try:
-            approved = (
-                load_opening_report(options["opening_report"], options["expected_opening_total"])
-                if options["opening_report"]
-                else None
-            )
             row = freeze_month(
                 Facility.objects.get(external_id=options["facility"]),
                 options["month"],
                 options["fiscal_month"],
-                approved,
+                options["expected_opening_total"],
                 self.stdout.write,
             )
             (folder / "plan.json").write_text(json.dumps(row.plan, indent=2))
+            if row.plan.get("opening_source"):
+                (folder / "opening-source.json").write_text(json.dumps(row.plan["opening_source"], indent=2))
             self.stdout.write(
                 json.dumps(
                     {

@@ -1,11 +1,12 @@
-"""Approved opening values are frozen inputs, allocated over Care quantities."""
+"""Capture the prior-day Care report values and allocate them over owned stock."""
 
 import hashlib
-import xml.etree.ElementTree as ET
+import json
 from collections import defaultdict
-from decimal import ROUND_HALF_UP, Decimal
-from pathlib import Path
-from zipfile import ZipFile
+from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+
+from django.db import connection
 
 CENT = Decimal("0.01")
 ZERO = Decimal(0)
@@ -32,60 +33,115 @@ def balanced_round(values, total):
     return result
 
 
-def load_opening_report(path, expected_total):
-    if expected_total is None:
-        raise ValueError("An opening report requires --expected-opening-total")
-    path = Path(path)
-    ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    rows = []
-    with ZipFile(path) as archive:
-        strings = []
-        if "xl/sharedStrings.xml" in archive.namelist():
-            strings = [
-                "".join(node.itertext())
-                for node in ET.fromstring(archive.read("xl/sharedStrings.xml")).findall("s:si", ns)
-            ]
-        sheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
-        for row in sheet.findall("s:sheetData/s:row", ns):
-            cells = {}
-            for cell in row.findall("s:c", ns):
-                if cell.find("s:f", ns) is not None:
-                    raise ValueError("The approved opening must contain fixed values, not formulas")
-                column = "".join(c for c in cell.attrib["r"] if c.isalpha())
-                value = cell.find("s:v", ns)
-                if cell.get("t") == "inlineStr":
-                    cells[column] = "".join(cell.find("s:is", ns).itertext())
-                elif cell.get("t") == "s":
-                    cells[column] = strings[int(value.text)]
-                elif value is not None:
-                    cells[column] = value.text
-            if row.get("r") == "1":
-                if [cells.get(c) for c in "ABCD"] != ["location", "name", "total_qty", "stock_value"]:
-                    raise ValueError("Expected location, name, total_qty, stock_value columns")
-                continue
-            if not cells:
-                continue
-            quantity, value = Decimal(cells["C"]), Decimal(cells["D"])
-            if not quantity.is_finite() or not value.is_finite() or not cells["A"] or not cells["B"]:
-                raise ValueError("Opening rows need names and finite quantities/values")
-            rows.append(
-                {
-                    "location": cells["A"],
-                    "name": cells["B"],
-                    "quantity": str(quantity),
-                    "value": str(value),
-                    "excel_row": int(row.get("r")),
-                }
+def opening_total(value):
+    try:
+        total = Decimal(str(value))
+    except InvalidOperation as error:
+        raise ValueError("The first opening requires a numeric --expected-opening-total") from error
+    if not total.is_finite() or total != money(total):
+        raise ValueError("The expected opening total must be finite with at most two decimal places")
+    return total
+
+
+def capture_opening_report(facility, cutoff, expected_total):
+    """Reproduce the existing report's value basis, independently of owned quantities.
+
+    The transition value must preserve the previously approved financial closing.
+    Its historical report includes priced rows and pending returns. Those rules
+    are retained for this one-time value capture only; period.py independently
+    reconstructs owned quantities, including unpriced stock and internal transit.
+    """
+    expected = opening_total(expected_total)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            WITH parameters AS (
+                SELECT %s::bigint AS facility_id, %s::timestamptz AS cutoff
+            ), excluded AS (
+                SELECT id FROM emr_facilitylocation
+                WHERE inventory_usage IN ('consumption', 'adjustment', 'supplier')
+            ), supplies AS (
+                SELECT sd.status, sd.supplied_item_quantity AS quantity,
+                    sd.supplied_item_id, ii.product_id AS source_product_id,
+                    d.origin_id, d.destination_id
+                FROM emr_supplydelivery sd
+                JOIN emr_deliveryorder d ON d.id = sd.order_id
+                JOIN emr_facilitylocation dst ON dst.id = d.destination_id
+                LEFT JOIN emr_inventoryitem ii ON ii.id = sd.supplied_inventory_item_id
+                CROSS JOIN parameters p
+                WHERE sd.deleted = FALSE AND d.deleted = FALSE
+                    AND dst.facility_id = p.facility_id AND sd.created_date < p.cutoff
+            ), entries AS (
+                SELECT supplied_item_id AS product_id, destination_id AS location_id, quantity
+                FROM supplies WHERE status = 'completed' AND origin_id IS NULL
+                UNION ALL
+                SELECT source_product_id,
+                    CASE WHEN destination_id IN (SELECT id FROM excluded)
+                        THEN COALESCE(origin_id, destination_id) ELSE origin_id END,
+                    -quantity
+                FROM supplies WHERE status IN ('completed', 'in_progress')
+                    AND source_product_id IS NOT NULL AND (
+                        destination_id IN (SELECT id FROM excluded) OR (
+                            origin_id IS NOT NULL AND origin_id NOT IN (SELECT id FROM excluded)
+                            AND destination_id NOT IN (SELECT id FROM excluded)
+                        )
+                    )
+                UNION ALL
+                SELECT source_product_id, destination_id, quantity
+                FROM supplies WHERE status IN ('completed', 'in_progress')
+                    AND source_product_id IS NOT NULL AND (
+                        origin_id IN (SELECT id FROM excluded) OR (
+                            origin_id IS NOT NULL AND origin_id NOT IN (SELECT id FROM excluded)
+                            AND destination_id NOT IN (SELECT id FROM excluded)
+                        )
+                    )
+                UNION ALL
+                SELECT ii.product_id,
+                    CASE WHEN ii.location_id IN (SELECT id FROM excluded) THEN NULL ELSE ii.location_id END,
+                    -md.quantity
+                FROM emr_medicationdispense md
+                JOIN emr_dispenseorder d ON d.id = md.order_id
+                JOIN emr_inventoryitem ii ON ii.id = md.item_id
+                JOIN emr_facilitylocation l ON l.id = ii.location_id
+                CROSS JOIN parameters p
+                WHERE md.deleted = FALSE AND d.deleted = FALSE
+                    AND md.status NOT IN ('cancelled', 'entered_in_error', 'stopped', 'declined')
+                    AND l.facility_id = p.facility_id AND md.created_date < p.cutoff
             )
+            SELECT REPLACE(pk.name, 'Internal Stock Update ', '') AS name,
+                COALESCE(l.name, '(no location)') AS location,
+                SUM(e.quantity) AS quantity, SUM(e.quantity * product.purchase_price) AS value
+            FROM entries e
+            JOIN emr_product product ON product.id = e.product_id
+            JOIN emr_productknowledge pk ON pk.id = product.product_knowledge_id
+            LEFT JOIN emr_facilitylocation l ON l.id = e.location_id
+            WHERE product.purchase_price IS NOT NULL
+                AND (e.location_id IS NULL OR e.location_id NOT IN (SELECT id FROM excluded))
+            GROUP BY REPLACE(pk.name, 'Internal Stock Update ', ''), l.id, l.name
+            HAVING SUM(e.quantity) <> 0 OR SUM(e.quantity * product.purchase_price) <> 0
+            ORDER BY name, location, l.id
+            """,
+            [facility.pk, cutoff],
+        )
+        rows = [
+            {"name": name, "location": location, "quantity": str(quantity), "value": str(value)}
+            for name, location, quantity, value in cursor.fetchall()
+        ]
     raw_total = sum((Decimal(row["value"]) for row in rows), ZERO)
     total = money(raw_total)
-    expected = Decimal(expected_total)
-    if not expected.is_finite() or total != expected:
-        raise ValueError(f"Workbook total {total} differs from the approved total {expected_total}")
+    if total != expected:
+        raise ValueError(
+            f"Care opening report total {total} differs from the approved total {expected}. "
+            "Review changed prices or source records; opening values will not be rescaled."
+        )
+    as_of = (cutoff - timedelta(microseconds=1)).date().isoformat()
+    source = {"facility_uuid": str(facility.external_id), "as_of": as_of, "rows": rows}
     return {
         "rows": rows,
-        "source_name": path.name,
-        "source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "source_type": "care_closing_report",
+        "source_name": f"Care stock report {as_of}",
+        "as_of": as_of,
+        "source_sha256": hashlib.sha256(json.dumps(source, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
         "raw_total": str(raw_total),
         "total": str(total),
     }
@@ -153,6 +209,8 @@ def allocate_opening(snapshot, products, used, quantities, flags):
         targets,
         {
             "source_name": snapshot["source_name"],
+            "source_type": snapshot.get("source_type", "approved_values"),
+            "as_of": snapshot.get("as_of"),
             "source_sha256": snapshot["source_sha256"],
             "raw_total": snapshot["raw_total"],
             "total": snapshot["total"],
