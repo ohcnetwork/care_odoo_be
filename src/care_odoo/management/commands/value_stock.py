@@ -14,6 +14,7 @@ class Command(BaseCommand):
         parser.add_argument("--facility", required=True, help="Facility external id")
         parser.add_argument("--as-of", required=True, help="YYYY-MM-DD")
         parser.add_argument("--output", required=True, help="New CSV file; an existing file is not overwritten")
+        parser.add_argument("--by-location", action="store_true", help="One row per batch and location")
 
     def handle(self, *args, **options):
         target = Path(options["output"])
@@ -24,9 +25,9 @@ class Command(BaseCommand):
             as_of = end_of_day(options["as_of"])
         except (ValueError, Facility.DoesNotExist) as error:
             raise CommandError("--facility must be a facility id and --as-of a YYYY-MM-DD date") from error
-        rows = value_inventory(facility, as_of)
+        rows = value_inventory(facility, as_of, by_location=options["by_location"])
         with target.open("x", newline="") as handle:
-            write_csv(rows, handle)
+            write_csv(rows, handle, by_location=options["by_location"])
         total = sum((row["value"] or Decimal(0) for row in rows), Decimal(0))
         flagged = sum(1 for row in rows if row["flags"])
-        self.stdout.write(f"{len(rows):,} batches, value {total:,.2f}, {flagged:,} flagged, written to {target}")
+        self.stdout.write(f"{len(rows):,} rows, value {total:,.2f}, {flagged:,} flagged, written to {target}")

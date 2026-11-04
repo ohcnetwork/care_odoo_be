@@ -9,7 +9,7 @@ from care_odoo.resources.stock_valuation.valuation import end_of_day, value_inve
 
 @api_view(["GET"])
 def valuation_view(request):
-    """GET ?facility=<uuid>&as_of=YYYY-MM-DD[&output=csv], valued at the end of that day."""
+    """GET ?facility=<uuid>&as_of=YYYY-MM-DD[&group_by=location][&output=csv], valued at the end of that day."""
     if not request.user.is_superuser:
         raise PermissionDenied("Only superusers can read stock valuation")
     try:
@@ -17,9 +17,10 @@ def valuation_view(request):
         as_of = end_of_day(request.query_params["as_of"])
     except (KeyError, ValueError, Facility.DoesNotExist) as error:
         raise ValidationError("facility (uuid) and as_of (YYYY-MM-DD) are required") from error
-    rows = value_inventory(facility, as_of)
+    by_location = request.query_params.get("group_by") == "location"
+    rows = value_inventory(facility, as_of, by_location=by_location)
     if request.query_params.get("output") == "csv":
         response = HttpResponse(content_type="text/csv")
-        write_csv(rows, response)
+        write_csv(rows, response, by_location=by_location)
         return response
     return Response({"as_of": as_of.isoformat(), "rows": rows})

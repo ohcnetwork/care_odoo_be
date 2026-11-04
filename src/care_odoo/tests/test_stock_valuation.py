@@ -186,6 +186,21 @@ class FifoValuationTests(CareAPITestBase):
         self.assertEqual(row["quantity"], 90)
         self.assertEqual(round(row["value"], 6), Decimal(50 * 15 + 40 * 8))
 
+    def test_by_location_splits_the_batch_at_its_unit_cost(self):
+        self.transfer(5, self.store, self.pharmacy, 10, status="in_progress")
+        batch = self.row(6)
+        rows = value_inventory(self.facility, day(6), by_location=True)
+        by_place = {row["location_name"]: row for row in rows}
+        self.assertEqual(
+            {name: row["quantity"] for name, row in by_place.items()},
+            {self.store.name: 70, self.pharmacy.name: 10, "In transit": 10},
+        )
+        self.assertIsNone(by_place["In transit"]["location_id"])
+        self.assertEqual(by_place[self.store.name]["location_id"], str(self.store.external_id))
+        self.assertEqual(sum(row["quantity"] for row in rows), batch["quantity"])
+        self.assertEqual(round(sum(row["value"] for row in rows), 6), round(batch["value"], 6))
+        self.assertTrue(all(row["unit_cost"] == batch["unit_cost"] for row in rows))
+
     def test_as_of_date_ignores_later_movements(self):
         row = self.row(2)
         self.assertEqual(row["quantity"], 100)
@@ -261,4 +276,20 @@ class FifoValuationTests(CareAPITestBase):
         self.assertEqual(response.status_code, 200)
         lines = response.content.decode().splitlines()
         self.assertTrue(lines[0].startswith("product_id,product_name,batch"))
+        self.assertNotIn("location_name", lines[0])
         self.assertEqual(len(lines), 2)
+
+    def test_api_groups_by_location(self):
+        self.client.force_authenticate(self.create_user(is_superuser=True))
+        response = self.client.get(
+            "/api/care_odoo/stock-valuation/",
+            {
+                "facility": str(self.facility.external_id),
+                "as_of": "2026-04-06",
+                "group_by": "location",
+                "output": "csv",
+            },
+        )
+        lines = response.content.decode().splitlines()
+        self.assertIn("location_id,location_name", lines[0])
+        self.assertEqual(len(lines), 3)

@@ -112,7 +112,9 @@ python manage.py import_valuation_costs --file posted-bill-lines.csv --source od
 python manage.py value_stock --facility <uuid> --as-of 2026-04-30 --output april.csv
 ```
 
-For superusers, `GET /api/care_odoo/stock-valuation/?facility=<uuid>&as_of=YYYY-MM-DD&output=csv` returns the same rows. Leave out `output` to get JSON. A Google Sheet can read from it directly.
+For superusers, `GET /api/care_odoo/stock-valuation/?facility=<uuid>&as_of=YYYY-MM-DD&output=csv` returns the same rows.
+
+To see where the stock sits, add `group_by=location` to the API or `--by-location` to the command. Each batch row is then split across the locations holding it, valued at the batch's facility-level FIFO unit cost, so the split always adds up to the batch row. Stock moving between two held locations gets its own `In transit` row. Leave out `output` to get JSON. A Google Sheet can read from it directly.
 
 ## License
 
