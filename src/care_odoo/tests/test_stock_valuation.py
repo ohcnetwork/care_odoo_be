@@ -193,9 +193,9 @@ class FifoValuationTests(CareAPITestBase):
         by_place = {row["location_name"]: row for row in rows}
         self.assertEqual(
             {name: row["quantity"] for name, row in by_place.items()},
-            {self.store.name: 70, self.pharmacy.name: 10, "In transit": 10},
+            # The 10 still on their way to the pharmacy count there.
+            {self.store.name: 70, self.pharmacy.name: 20},
         )
-        self.assertIsNone(by_place["In transit"]["location_id"])
         self.assertEqual(by_place[self.store.name]["location_id"], str(self.store.external_id))
         self.assertEqual(sum(row["quantity"] for row in rows), batch["quantity"])
         self.assertEqual(round(sum(row["value"] for row in rows), 6), round(batch["value"], 6))

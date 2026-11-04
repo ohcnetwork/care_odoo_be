@@ -14,7 +14,7 @@ dates.
 
 With by_location, each batch row is split by where its stock sits, every share at the
 batch's facility FIFO unit cost, so the split always adds up to the batch row. Stock
-moving between two held locations gets its own "in transit" row.
+moving between two held locations counts at its destination.
 """
 
 import csv
@@ -56,7 +56,6 @@ COLUMNS = [
     "flags",
 ]
 LOCATION_COLUMNS = COLUMNS[:4] + ["location_id", "location_name"] + COLUMNS[4:]
-IN_TRANSIT = "In transit"
 
 
 @dataclass
@@ -113,7 +112,7 @@ def held_quantities(facility, as_of):
 def location_quantities(facility, as_of):
     """
     Quantity per (batch, location) in held locations, as Care keeps it per location
-    (sync_inventory_item), plus held-to-held transfers not yet received under None.
+    (sync_inventory_item), with held-to-held transfers not yet received counted at the destination.
     """
     deliveries = SupplyDelivery.objects.filter(
         deleted=False,
@@ -148,14 +147,11 @@ def location_quantities(facility, as_of):
             "supplied_inventory_item__location_id",
             "supplied_item_quantity",
         ),
-        (1, in_transit, "supplied_inventory_item__product_id", None, "supplied_item_quantity"),
+        (1, in_transit, "supplied_inventory_item__product_id", "order__destination_id", "supplied_item_quantity"),
         (-1, dispensed, "item__product_id", "item__location_id", "quantity"),
     ):
-        fields = {"batch_id": F(batch)}
-        if place:
-            fields["place_id"] = F(place)
-        for row in rows.values(**fields).annotate(total=Sum(amount)):
-            quantities[(row["batch_id"], row.get("place_id"))] += sign * (row["total"] or ZERO)
+        for row in rows.values(batch_id=F(batch), place_id=F(place)).annotate(total=Sum(amount)):
+            quantities[(row["batch_id"], row["place_id"])] += sign * (row["total"] or ZERO)
     return quantities
 
 
@@ -286,12 +282,12 @@ def split_by_location(facility, as_of, batch_rows):
     rows = []
     for row in batch_rows:
         for place_id, quantity in by_batch[row["batch_id"]]:
-            place = places.get(place_id)
+            place = places[place_id]
             rows.append(
                 {
                     **row,
-                    "location_id": str(place["external_id"]) if place else None,
-                    "location_name": place["name"] if place else IN_TRANSIT,
+                    "location_id": str(place["external_id"]),
+                    "location_name": place["name"],
                     "quantity": quantity,
                     "value": quantity * row["unit_cost"] if row["unit_cost"] is not None else None,
                 }
