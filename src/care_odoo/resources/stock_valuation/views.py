@@ -9,7 +9,7 @@ from care_odoo.resources.stock_valuation.valuation import end_of_day, value_inve
 
 @api_view(["GET"])
 def valuation_view(request):
-    """GET ?facility=<uuid>&as_of=YYYY-MM-DD[&output=csv], valued at the end of that day."""
+    """GET ?facility=<uuid>&as_of=YYYY-MM-DD[&output=csv], valued at the end of that day, per batch and location."""
     if not request.user.is_superuser:
         raise PermissionDenied("Only superusers can read stock valuation")
     try:

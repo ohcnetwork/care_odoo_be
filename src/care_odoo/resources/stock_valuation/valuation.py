@@ -1,16 +1,17 @@
 """
-FIFO valuation of a facility's stock as of a moment, one row per batch.
+FIFO valuation of a facility's stock as of a moment, one row per batch and location.
 
 A Care Product is one batch, and dispenses and transfers always name the batch,
 so cost never mixes across batches. Within a batch, every purchase receipt is a
 cost layer. Whatever the facility still holds is taken from the newest layers
-(FIFO: the oldest units left first).
+(FIFO: the oldest units left first), and every location holding the batch is
+valued at that batch's unit cost.
 
 The facility holds what sits in store or general ("none") locations, including
-stock moving between them. Stock leaves when it is dispensed or sent to a
-consumption, adjustment or supplier location. All dates are created_date and
-statuses are as they are today, so a later cancellation also changes earlier
-dates.
+stock moving between them, which is shown as in transit. Stock leaves when it is
+dispensed or sent to a consumption, adjustment or supplier location. All dates
+are created_date and statuses are as they are today, so a later cancellation
+also changes earlier dates.
 """
 
 import csv
@@ -19,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
 
+from care.emr.models.location import FacilityLocation
 from care.emr.models.medication_dispense import MedicationDispense
 from care.emr.models.product import Product
 from care.emr.models.supply_delivery import SupplyDelivery
@@ -38,12 +40,17 @@ from care_odoo.resources.stock_valuation.costing import care_unit_cost
 ZERO = Decimal(0)
 HELD_USAGES = ("store", "none")
 COMPLETED = SupplyDeliveryStatusOptions.completed.value
-LEAVING = [SupplyDeliveryStatusOptions.in_progress.value, COMPLETED]
+IN_PROGRESS = SupplyDeliveryStatusOptions.in_progress.value
+LEAVING = [IN_PROGRESS, COMPLETED]
+IN_TRANSIT = "In transit"
 COLUMNS = [
     "product_id",
     "product_name",
     "batch",
     "expiration_date",
+    "location",
+    "category",
+    "billing_category",
     "quantity",
     "unit_cost",
     "value",
@@ -73,7 +80,12 @@ class BatchValue:
 
 
 def held_quantities(facility, as_of):
-    """Quantity per batch held by the facility, from movements up to as_of."""
+    """
+    Quantity per (batch, location id) held by the facility, from movements up to as_of.
+
+    A move between two held locations leaves its origin when sent and reaches its
+    destination when completed; until then it is held in transit, location None.
+    """
     deliveries = SupplyDelivery.objects.filter(
         deleted=False,
         order__deleted=False,
@@ -83,8 +95,9 @@ def held_quantities(facility, as_of):
     )
     into_held = Q(order__destination__inventory_usage__in=HELD_USAGES)
     from_held = Q(order__origin__isnull=False) & Q(supplied_inventory_item__location__inventory_usage__in=HELD_USAGES)
-    incoming = deliveries.filter(into_held & ~from_held, status=COMPLETED)
-    outgoing = deliveries.filter(from_held & ~into_held, status__in=LEAVING)
+    incoming = deliveries.filter(into_held, status=COMPLETED)
+    outgoing = deliveries.filter(from_held, status__in=LEAVING)
+    in_transit = deliveries.filter(into_held & from_held, status=IN_PROGRESS)
     dispensed = MedicationDispense.objects.filter(
         deleted=False,
         item__location__facility=facility,
@@ -92,14 +105,23 @@ def held_quantities(facility, as_of):
         created_date__lte=as_of,
     ).exclude(status__in=MEDICATION_DISPENSE_CANCELLED_STATUSES)
     quantities = defaultdict(lambda: ZERO)
-    for sign, rows, batch, amount in (
-        (1, incoming, "supplied_inventory_item__product_id", "supplied_item_quantity"),
-        (-1, outgoing, "supplied_inventory_item__product_id", "supplied_item_quantity"),
-        (-1, dispensed, "item__product_id", "quantity"),
+    for sign, rows, batch, location, amount in (
+        (1, incoming, "supplied_inventory_item__product_id", "order__destination_id", "supplied_item_quantity"),
+        (
+            -1,
+            outgoing,
+            "supplied_inventory_item__product_id",
+            "supplied_inventory_item__location_id",
+            "supplied_item_quantity",
+        ),
+        (1, in_transit, "supplied_inventory_item__product_id", None, "supplied_item_quantity"),
+        (-1, dispensed, "item__product_id", "item__location_id", "quantity"),
     ):
-        totals = rows.values(batch_id=F(batch)).annotate(total=Sum(amount))
-        for row in totals:
-            quantities[row["batch_id"]] += sign * (row["total"] or ZERO)
+        keys = {"batch_id": F(batch)}
+        if location:
+            keys["held_at"] = F(location)
+        for row in rows.values(**keys).annotate(total=Sum(amount)):
+            quantities[row["batch_id"], row.get("held_at")] += sign * (row["total"] or ZERO)
     return quantities
 
 
@@ -172,43 +194,55 @@ def fifo_batch_value(quantity, layers, fallback_cost):
 
 
 def value_inventory(facility, as_of):
-    """One row per batch the facility holds, with FIFO value and any gaps flagged."""
-    quantities = {batch_id: quantity for batch_id, quantity in held_quantities(facility, as_of).items() if quantity}
+    """One row per batch and location the facility holds it in, with FIFO value and any gaps flagged."""
+    by_location = defaultdict(dict)
+    for (batch_id, location_id), quantity in held_quantities(facility, as_of).items():
+        if quantity:
+            by_location[batch_id][location_id] = quantity
+    totals = {batch_id: total for batch_id, held in by_location.items() if (total := sum(held.values()))}
     layers = cost_layers(facility, as_of)
-    products = Product.objects.filter(id__in=quantities).values(
+    location_ids = {location_id for held in by_location.values() for location_id in held if location_id}
+    locations = dict(FacilityLocation.objects.filter(id__in=location_ids).values_list("id", "name"))
+    products = Product.objects.filter(id__in=totals).values(
         "id",
         "external_id",
         "batch",
         "expiration_date",
         "purchase_price",
         name=F("product_knowledge__name"),
+        category=F("product_knowledge__category__title"),
+        billing_category=F("charge_item_definition__category__title"),
     )
     rows = []
     for product in products.iterator(chunk_size=2000):
-        quantity = quantities[product["id"]]
+        total = totals[product["id"]]
         batch = fifo_batch_value(
-            max(quantity, ZERO),
+            max(total, ZERO),
             layers.get(product["id"], []),
             product["purchase_price"],
         )
-        flags = sorted(source for source in batch.sources if source.startswith(("no_", "missing", "invalid")))
-        if quantity < 0:
-            flags.append("negative_quantity")
+        gaps = sorted(source for source in batch.sources if source.startswith(("no_", "missing", "invalid")))
         unit_cost = batch.unit_cost
-        rows.append(
-            {
-                "product_id": str(product["external_id"]),
-                "product_name": product["name"],
-                "batch": (product["batch"] or {}).get("lot_number"),
-                "expiration_date": product["expiration_date"],
-                "quantity": quantity,
-                "unit_cost": unit_cost,
-                "value": quantity * unit_cost if unit_cost is not None else None,
-                "cost_sources": ",".join(sorted(batch.sources)),
-                "flags": ",".join(flags),
-            }
-        )
-    rows.sort(key=lambda row: (row["product_name"] or "", row["product_id"]))
+        for location_id, quantity in by_location[product["id"]].items():
+            # Below zero in this location, or in the batch as a whole (then nothing is valued).
+            flags = gaps + ["negative_quantity"] if quantity < 0 or total < 0 else gaps
+            rows.append(
+                {
+                    "product_id": str(product["external_id"]),
+                    "product_name": product["name"],
+                    "batch": (product["batch"] or {}).get("lot_number"),
+                    "expiration_date": product["expiration_date"],
+                    "location": locations[location_id] if location_id else IN_TRANSIT,
+                    "category": product["category"],
+                    "billing_category": product["billing_category"],
+                    "quantity": quantity,
+                    "unit_cost": unit_cost,
+                    "value": quantity * unit_cost if unit_cost is not None else None,
+                    "cost_sources": ",".join(sorted(batch.sources)),
+                    "flags": ",".join(flags),
+                }
+            )
+    rows.sort(key=lambda row: (row["product_name"] or "", row["product_id"], row["location"]))
     return rows
 
 

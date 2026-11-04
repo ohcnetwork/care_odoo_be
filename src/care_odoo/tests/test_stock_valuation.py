@@ -105,7 +105,17 @@ class FifoValuationTests(CareAPITestBase):
         self.batch = baker.make(
             Product,
             facility=self.facility,
-            product_knowledge=baker.make("emr.ProductKnowledge", facility=self.facility),
+            product_knowledge=baker.make(
+                "emr.ProductKnowledge",
+                facility=self.facility,
+                category=baker.make("emr.ResourceCategory", facility=self.facility, title="SURGICAL"),
+            ),
+            charge_item_definition=baker.make(
+                "emr.ChargeItemDefinition",
+                facility=self.facility,
+                status="active",
+                category=baker.make("emr.ResourceCategory", facility=self.facility, title="Consumables"),
+            ),
             purchase_price=Decimal(10),
         )
         patient = self.create_patient()
@@ -169,10 +179,19 @@ class FifoValuationTests(CareAPITestBase):
         )
         self.dated(MedicationDispense, dispense, number)
 
-    def row(self, number):
+    def locations(self, number):
         rows = value_inventory(self.facility, day(number))
-        self.assertEqual(len(rows), 1)
-        return rows[0]
+        self.assertEqual({row["product_id"] for row in rows}, {str(self.batch.external_id)})
+        return {row["location"]: row for row in rows}
+
+    def row(self, number):
+        """The batch as a whole, added up across its locations."""
+        rows = list(self.locations(number).values())
+        return {
+            **rows[0],
+            "quantity": sum(row["quantity"] for row in rows),
+            "value": sum(row["value"] for row in rows),
+        }
 
     def test_remaining_stock_uses_newest_layers(self):
         row = self.row(6)
@@ -180,11 +199,33 @@ class FifoValuationTests(CareAPITestBase):
         self.assertEqual(round(row["value"], 6), Decimal(50 * 15 + 40 * 8))
         self.assertEqual(row["flags"], "")
 
+    def test_each_location_is_valued_at_the_batch_cost(self):
+        rows = self.locations(6)
+        self.assertEqual(set(rows), {self.store.name, self.pharmacy.name})
+        self.assertEqual(rows[self.store.name]["quantity"], 80)
+        self.assertEqual(rows[self.pharmacy.name]["quantity"], 10)
+        unit_cost = Decimal(50 * 15 + 40 * 8) / 90
+        self.assertEqual(rows[self.pharmacy.name]["unit_cost"], unit_cost)
+        self.assertEqual(rows[self.pharmacy.name]["value"], 10 * unit_cost)
+        self.assertEqual(rows[self.store.name]["category"], "SURGICAL")
+        self.assertEqual(rows[self.store.name]["billing_category"], "Consumables")
+
     def test_stock_moving_between_locations_stays_in_the_facility(self):
         self.transfer(5, self.store, self.pharmacy, 10, status="in_progress")
         row = self.row(6)
         self.assertEqual(row["quantity"], 90)
         self.assertEqual(round(row["value"], 6), Decimal(50 * 15 + 40 * 8))
+        rows = self.locations(6)
+        self.assertEqual(rows[self.store.name]["quantity"], 70)
+        self.assertEqual(rows["In transit"]["quantity"], 10)
+
+    def test_location_below_zero_is_flagged(self):
+        self.dispense(5, self.pharmacy, 15)
+        rows = self.locations(6)
+        self.assertEqual(rows[self.pharmacy.name]["quantity"], -5)
+        self.assertEqual(rows[self.pharmacy.name]["flags"], "negative_quantity")
+        self.assertEqual(rows[self.store.name]["flags"], "")
+        self.assertEqual(round(self.row(6)["value"], 6), Decimal(50 * 15 + 25 * 8))
 
     def test_as_of_date_ignores_later_movements(self):
         row = self.row(2)
@@ -260,5 +301,6 @@ class FifoValuationTests(CareAPITestBase):
         response = self.client.get(url, {**query, "output": "csv"})
         self.assertEqual(response.status_code, 200)
         lines = response.content.decode().splitlines()
-        self.assertTrue(lines[0].startswith("product_id,product_name,batch"))
-        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith("product_id,product_name,batch,expiration_date,location,category"))
+        # The batch sits in the store and the pharmacy.
+        self.assertEqual(len(lines), 3)
