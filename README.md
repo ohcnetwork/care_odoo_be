@@ -88,6 +88,32 @@ vendor bill in Odoo. While that bill is still a draft:
 Once the bill is posted in Odoo, Care refuses both and names the bill in the error. To change the order after that,
 reset the bill to draft in Odoo first.
 
+## Stock valuation (FIFO)
+
+Values a facility's stock at any date. It produces one row per batch, using Care's own receipts, transfers and dispenses. It adds no tables and no core fields.
+
+- A Care `Product` is one batch. Every completed purchase receipt line is a cost layer for that batch, and the stock still held comes from the newest layers.
+- The facility holds what sits in `store` or `none` locations, including stock moving between them. Stock leaves through dispenses and through transfers to `consumption`, `adjustment` or `supplier` locations.
+- Unit cost per receipt line:
+  1. The confirmed cost stored on the line at `extensions.valuation_cost`.
+  2. The Care pack price, after free packs and percentage discount. Lines that store a line total instead are detected against the batch's `purchase_price`.
+  3. The batch's `purchase_price`.
+
+  Tax is excluded. Rows that fall back to an estimate are flagged.
+- All dates are `created_date`, and statuses are read as they are now.
+
+Load confirmed costs from posted vendor bills, then value a day (end of day, India time):
+
+```bash
+# CSV columns: care_line_id, price_subtotal (bill line total excl. tax), optional reference.
+# Several bill lines for one Care line are added together; any bad row means nothing is saved.
+# Safe to rerun: it rewrites only lines whose cost changed, without save hooks or resync.
+python manage.py import_valuation_costs --file posted-bill-lines.csv --source odoo_bill
+python manage.py value_stock --facility <uuid> --as-of 2026-04-30 --output april.csv
+```
+
+For superusers, `GET /api/care_odoo/stock-valuation/?facility=<uuid>&as_of=YYYY-MM-DD&output=csv` returns the same rows. Leave out `output` to get JSON. A Google Sheet can read from it directly.
+
 ## License
 
 This project is licensed under the terms of the MIT license.
