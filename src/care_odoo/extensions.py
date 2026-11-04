@@ -211,3 +211,31 @@ class PaymentReconciliationExtension(PlugExtension):
 
 
 ExtensionRegistry.register(PaymentReconciliationExtension())
+
+
+# Confirmed purchase cost per base unit (e.g. from the posted bill), used for stock
+# valuation. Kept apart from total_purchase_price so vendor bills never see it; registered
+# because Care drops unregistered extension keys when a line is edited.
+VALUATION_COST = "valuation_cost"
+
+
+class ValuationCostExtension(PlugExtension):
+    extension_name = VALUATION_COST
+    extension_version = "1.0.0"
+    resource_type = ExtensionResource.supply_delivery
+    write_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Valuation cost",
+        "type": "object",
+        "properties": {
+            "unit_cost": {
+                "type": "string",
+                "title": "Cost per base unit, excluding tax",
+            },
+            "source": {"type": "string"},
+            "reference": {"type": "string"},
+        },
+    }
+
+
+ExtensionRegistry.register(ValuationCostExtension())

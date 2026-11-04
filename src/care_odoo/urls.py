@@ -6,6 +6,7 @@ from care_odoo.resources.cash_session.viewset import CashSessionViewSet
 from care_odoo.resources.cash_transfer.viewset import CashTransferViewSet
 from care_odoo.resources.invoice_resync.view import InvoiceResyncView
 from care_odoo.resources.payment_method_line.viewset import PaymentMethodLineViewSet
+from care_odoo.resources.stock_valuation.views import valuation_view
 
 
 def ping(request):
@@ -23,6 +24,7 @@ facility_router.register("cash-transfer", CashTransferViewSet, basename="cash-tr
 urlpatterns = [
     path("ping/", ping, name="ping"),
     path("invoice-resync/", InvoiceResyncView.as_view(), name="invoice-resync"),
+    path("stock-valuation/", valuation_view, name="stock-valuation"),
     path("", include(router.urls)),
     path(
         "facility/<uuid:facility_external_id>/",
