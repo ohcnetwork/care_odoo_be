@@ -4,6 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
+from uuid import uuid4
 
 from care.emr.models.inventory_item import InventoryItem
 from care.emr.models.location import FacilityLocation
@@ -15,6 +16,7 @@ from care.emr.resources.inventory.inventory_item.sync_inventory_item import (
 )
 from care.utils.tests.base import CareAPITestBase
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db.models import Sum
 from django.test import TestCase
 from model_bakery import baker
@@ -80,6 +82,10 @@ class CareUnitCostTests(TestCase):
 
     def test_more_free_than_received_is_invalid(self):
         line = self.line(extensions={"supply_delivery_extension": {"free_quantity": "11"}})
+        self.assertEqual(care_unit_cost(line), (None, "invalid_offer"))
+
+    def test_negative_free_packs_are_invalid(self):
+        line = self.line(extensions={"supply_delivery_extension": {"free_quantity": "-1"}})
         self.assertEqual(care_unit_cost(line), (None, "invalid_offer"))
 
 
@@ -189,17 +195,30 @@ class FifoValuationTests(CareAPITestBase):
         newest = SupplyDelivery.objects.filter(order__origin__isnull=True, supplied_item_quantity=50).get()
         with TemporaryDirectory() as folder:
             path = Path(folder) / "costs.csv"
-            path.write_text(f"care_line_id,price_subtotal\n{newest.external_id},500\n")
+            # One Care line billed in two parts: the parts are added together.
+            path.write_text(
+                f"care_line_id,price_subtotal,reference\n{newest.external_id},300,B1\n{newest.external_id},200,B2\n"
+            )
             call_command("import_valuation_costs", file=str(path), stdout=io.StringIO())
             output = io.StringIO()
             call_command("import_valuation_costs", file=str(path), stdout=output)
             self.assertIn("Updated 0 of 1", output.getvalue())
         newest.refresh_from_db()
-        self.assertEqual(newest.extensions["valuation_cost"]["unit_cost"], "10.000000")
+        self.assertEqual(
+            newest.extensions["valuation_cost"],
+            {"unit_cost": "10.000000", "source": "odoo_bill", "reference": "B1, B2"},
+        )
         self.assertIn("supply_delivery_extension", newest.extensions)
         row = self.row(6)
         self.assertEqual(round(row["value"], 6), Decimal(50 * 10 + 40 * 8))
         self.assertIn("odoo_bill", row["cost_sources"])
+
+    def test_unknown_line_saves_nothing(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "costs.csv"
+            path.write_text(f"care_line_id,price_subtotal\n{uuid4()},500\n")
+            with self.assertRaises(CommandError):
+                call_command("import_valuation_costs", file=str(path), stdout=io.StringIO())
 
     def test_stock_without_layer_uses_product_price_and_says_so(self):
         # A patient return adds 100 units that no purchase layer covers.

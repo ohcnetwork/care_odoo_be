@@ -13,8 +13,10 @@ statuses are as they are today, so a later cancellation also changes earlier
 dates.
 """
 
+import csv
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from care.emr.models.medication_dispense import MedicationDispense
@@ -28,6 +30,7 @@ from care.emr.resources.medication.dispense.spec import (
 )
 from django.db.models import F, Q, Sum
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from care_odoo.extensions import VALUATION_COST
 from care_odoo.resources.stock_valuation.costing import care_unit_cost
@@ -36,6 +39,17 @@ ZERO = Decimal(0)
 HELD_USAGES = ("store", "none")
 COMPLETED = SupplyDeliveryStatusOptions.completed.value
 LEAVING = [SupplyDeliveryStatusOptions.in_progress.value, COMPLETED]
+COLUMNS = [
+    "product_id",
+    "product_name",
+    "batch",
+    "expiration_date",
+    "quantity",
+    "unit_cost",
+    "value",
+    "cost_sources",
+    "flags",
+]
 
 
 @dataclass
@@ -196,3 +210,14 @@ def value_inventory(facility, as_of):
         )
     rows.sort(key=lambda row: (row["product_name"] or "", row["product_id"]))
     return rows
+
+
+def end_of_day(value):
+    """The last moment of a YYYY-MM-DD day in Care's time zone."""
+    return datetime.combine(date.fromisoformat(value), time.max, tzinfo=timezone.get_default_timezone())
+
+
+def write_csv(rows, handle):
+    writer = csv.DictWriter(handle, fieldnames=COLUMNS)
+    writer.writeheader()
+    writer.writerows(rows)

@@ -37,7 +37,7 @@ def care_unit_cost(line):
     extension = (line["extensions"] or {}).get("supply_delivery_extension") or {}
     free_packs = _decimal(extension.get("free_quantity"))
     discount = _decimal(extension.get("purchase_discount"))
-    if free_packs is None or discount is None or not ZERO <= discount <= HUNDRED:
+    if free_packs is None or free_packs < 0 or discount is None or not ZERO <= discount <= HUNDRED:
         return None, "invalid_offer"
     keep = 1 - discount / HUNDRED
     pack_size = line["supplied_item_pack_size"] or 1

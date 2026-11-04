@@ -1,42 +1,15 @@
-import csv
-from datetime import datetime, time
-from zoneinfo import ZoneInfo
-
 from care.facility.models.facility import Facility
 from django.http import HttpResponse
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from care_odoo.resources.stock_valuation.valuation import value_inventory
-
-COLUMNS = [
-    "product_id",
-    "product_name",
-    "batch",
-    "expiration_date",
-    "quantity",
-    "unit_cost",
-    "value",
-    "cost_sources",
-    "flags",
-]
-
-
-def end_of_day(value, zone="Asia/Kolkata"):
-    day = datetime.strptime(value, "%Y-%m-%d").date()  # noqa: DTZ007
-    return datetime.combine(day, time.max, tzinfo=ZoneInfo(zone))
-
-
-def write_csv(rows, handle):
-    writer = csv.DictWriter(handle, fieldnames=COLUMNS)
-    writer.writeheader()
-    writer.writerows(rows)
+from care_odoo.resources.stock_valuation.valuation import end_of_day, value_inventory, write_csv
 
 
 @api_view(["GET"])
 def valuation_view(request):
-    """GET ?facility=<uuid>&as_of=YYYY-MM-DD[&output=csv], end of day India time."""
+    """GET ?facility=<uuid>&as_of=YYYY-MM-DD[&output=csv], valued at the end of that day."""
     if not request.user.is_superuser:
         raise PermissionDenied("Only superusers can read stock valuation")
     try:

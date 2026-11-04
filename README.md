@@ -105,7 +105,8 @@ Values a facility's stock at any date. It produces one row per batch, using Care
 Load confirmed costs from posted vendor bills, then value a day (end of day, India time):
 
 ```bash
-# CSV columns: care_line_id and price_subtotal (line total excl. tax) or unit_cost; optional reference.
+# CSV columns: care_line_id, price_subtotal (bill line total excl. tax), optional reference.
+# Several bill lines for one Care line are added together; any bad row means nothing is saved.
 # Safe to rerun: it rewrites only lines whose cost changed, without save hooks or resync.
 python manage.py import_valuation_costs --file posted-bill-lines.csv --source odoo_bill
 python manage.py value_stock --facility <uuid> --as-of 2026-04-30 --output april.csv
