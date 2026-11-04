@@ -29,4 +29,8 @@ class Command(BaseCommand):
             write_csv(rows, handle)
         total = sum((row["value"] or Decimal(0) for row in rows), Decimal(0))
         flagged = sum(1 for row in rows if row["flags"])
-        self.stdout.write(f"{len(rows):,} batches, value {total:,.2f}, {flagged:,} flagged, written to {target}")
+        batches = len({row["product_id"] for row in rows})
+        self.stdout.write(
+            f"{batches:,} batches in {len(rows):,} rows by location, value {total:,.2f}, {flagged:,} flagged, "
+            f"written to {target}"
+        )
