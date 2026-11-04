@@ -275,9 +275,12 @@ def split_by_location(facility, as_of, batch_rows):
     for (batch_id, place_id), quantity in location_quantities(facility, as_of).items():
         if quantity:
             by_batch[batch_id].append((place_id, quantity))
+    # The base manager keeps soft-deleted locations: stock left in one still belongs to the facility.
     places = {
         place["id"]: place
-        for place in FacilityLocation.objects.filter(facility=facility).values("id", "external_id", "name")
+        for place in FacilityLocation._base_manager.filter(facility=facility).values(
+            "id", "external_id", "name", "deleted"
+        )
     }
     rows = []
     for row in batch_rows:
@@ -288,6 +291,7 @@ def split_by_location(facility, as_of, batch_rows):
                     **row,
                     "location_id": str(place["external_id"]),
                     "location_name": place["name"],
+                    "flags": ",".join(filter(None, [row["flags"], "deleted_location" if place["deleted"] else ""])),
                     "quantity": quantity,
                     "value": quantity * row["unit_cost"] if row["unit_cost"] is not None else None,
                 }

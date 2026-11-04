@@ -201,6 +201,13 @@ class FifoValuationTests(CareAPITestBase):
         self.assertEqual(round(sum(row["value"] for row in rows), 6), round(batch["value"], 6))
         self.assertTrue(all(row["unit_cost"] == batch["unit_cost"] for row in rows))
 
+    def test_stock_left_in_a_deleted_location_is_kept_and_flagged(self):
+        FacilityLocation.objects.filter(id=self.pharmacy.id).update(deleted=True)
+        rows = {row["location_name"]: row for row in value_inventory(self.facility, day(6), by_location=True)}
+        self.assertEqual(rows[self.pharmacy.name]["quantity"], 10)
+        self.assertIn("deleted_location", rows[self.pharmacy.name]["flags"])
+        self.assertNotIn("deleted_location", rows[self.store.name]["flags"])
+
     def test_as_of_date_ignores_later_movements(self):
         row = self.row(2)
         self.assertEqual(row["quantity"], 100)
