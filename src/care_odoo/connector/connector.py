@@ -12,12 +12,13 @@ logger = logging.getLogger(__name__)
 
 class OdooConnector:
     @classmethod
-    def call_api(cls, endpoint: str, data: dict, method: str = "POST") -> dict:
+    def call_api(cls, endpoint: str, data: dict, method: str = "POST", log_response: bool = True) -> dict:
         """Call a custom Odoo addon API endpoint.
 
         Args:
             endpoint: The API endpoint path (e.g. '/api/create_invoice')
             data: The data to send in the request body
+            log_response: False to leave out the response body, for responses too large to log
 
         Returns:
             dict: The JSON response from the API
@@ -56,10 +57,12 @@ class OdooConnector:
             response = requests.request(method, url, headers=headers, json=data, timeout=30)
             logger.info("Odoo API Response Status Code: %s", url)
             logger.info("Odoo API Response Status: %s", response.status_code)
-            logger.info("Odoo API Raw Response: %s", response.text)
+            if log_response:
+                logger.info("Odoo API Raw Response: %s", response.text)
 
             response_json = response.json()
-            logger.info("Odoo API Response JSON: %s", response_json)
+            if log_response:
+                logger.info("Odoo API Response JSON: %s", response_json)
 
             if not response.ok:
                 error_msg = response_json.get("message", str(response.reason))

@@ -1,10 +1,12 @@
 import logging
 
-from celery import shared_task
+from celery import current_app, shared_task
+from celery.schedules import crontab
 from requests.exceptions import ConnectionError, Timeout
 
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.resources.account_move_payment.spec import AccountPaymentCancelApiRequest
+from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
 
@@ -175,3 +177,34 @@ def verify_invoice_exists_or_cleanup(self, invoice_external_id: str) -> dict:
         )
         # Re-raise to trigger Celery retry
         raise
+
+
+@shared_task(name="care_odoo.tasks.sync_valuation_costs")
+def sync_valuation_costs() -> dict:
+    """Store posted Odoo vendor bill costs on Care receipt lines for stock valuation (see sync_valuation_costs)."""
+    # Import here to avoid circular imports
+    from care_odoo.resources.stock_valuation.bill_costs import bill_cost_changes
+
+    changes = bill_cost_changes()
+    changes.save()
+    result = {
+        "lines": changes.lines,
+        "changed": changes.changed,
+        "removed": changes.removed,
+        "skipped": len(changes.problems),
+        "quantity_differences": len(changes.quantity_differences),
+    }
+    logger.info("Valuation costs synced from posted Odoo bills: %s", result)
+    if changes.problems:
+        logger.warning("Receipt lines skipped by the valuation cost sync: %s", changes.problems[:20])
+    return result
+
+
+@current_app.on_after_finalize.connect
+def setup_periodic_tasks(sender, **kwargs):
+    if plugin_settings.CARE_ODOO_VALUATION_COST_SYNC:
+        sender.add_periodic_task(
+            crontab(hour="2", minute="0"),
+            sync_valuation_costs.s(),
+            name="care_odoo_sync_valuation_costs",
+        )
