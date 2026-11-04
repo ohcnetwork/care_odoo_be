@@ -6,7 +6,8 @@ so cost never mixes across batches. Within a batch, every purchase receipt is a
 cost layer. Whatever the facility still holds is taken from the newest layers
 (FIFO: the oldest units left first).
 
-The facility holds what sits in store or general ("none") locations, including
+The facility holds what sits in store or general ("none") locations that are not
+deleted, including
 stock moving between them. Stock leaves when it is dispensed or sent to a
 consumption, adjustment or supplier location. All dates are created_date and
 statuses are as they are today, so a later cancellation also changes earlier
@@ -42,6 +43,13 @@ from care_odoo.resources.stock_valuation.costing import care_unit_cost
 
 ZERO = Decimal(0)
 HELD_USAGES = ("store", "none")
+
+
+def held(location):
+    """Locations whose stock counts: store or general ones that have not been deleted."""
+    return Q(**{f"{location}__inventory_usage__in": HELD_USAGES, f"{location}__deleted": False})
+
+
 COMPLETED = SupplyDeliveryStatusOptions.completed.value
 LEAVING = [SupplyDeliveryStatusOptions.in_progress.value, COMPLETED]
 COLUMNS = [
@@ -87,14 +95,14 @@ def held_quantities(facility, as_of):
         supplied_inventory_item__isnull=False,
         created_date__lte=as_of,
     )
-    into_held = Q(order__destination__inventory_usage__in=HELD_USAGES)
-    from_held = Q(order__origin__isnull=False) & Q(supplied_inventory_item__location__inventory_usage__in=HELD_USAGES)
+    into_held = held("order__destination")
+    from_held = Q(order__origin__isnull=False) & held("supplied_inventory_item__location")
     incoming = deliveries.filter(into_held & ~from_held, status=COMPLETED)
     outgoing = deliveries.filter(from_held & ~into_held, status__in=LEAVING)
     dispensed = MedicationDispense.objects.filter(
+        held("item__location"),
         deleted=False,
         item__location__facility=facility,
-        item__location__inventory_usage__in=HELD_USAGES,
         created_date__lte=as_of,
     ).exclude(status__in=MEDICATION_DISPENSE_CANCELLED_STATUSES)
     quantities = defaultdict(lambda: ZERO)
@@ -121,20 +129,15 @@ def location_quantities(facility, as_of):
         supplied_inventory_item__isnull=False,
         created_date__lte=as_of,
     )
-    incoming = deliveries.filter(status=COMPLETED, order__destination__inventory_usage__in=HELD_USAGES)
+    incoming = deliveries.filter(held("order__destination"), status=COMPLETED)
     outgoing = deliveries.filter(
-        order__origin__isnull=False,
-        status__in=LEAVING,
-        supplied_inventory_item__location__inventory_usage__in=HELD_USAGES,
+        held("supplied_inventory_item__location"), order__origin__isnull=False, status__in=LEAVING
     )
-    in_transit = outgoing.filter(
-        status=SupplyDeliveryStatusOptions.in_progress.value,
-        order__destination__inventory_usage__in=HELD_USAGES,
-    )
+    in_transit = outgoing.filter(held("order__destination"), status=SupplyDeliveryStatusOptions.in_progress.value)
     dispensed = MedicationDispense.objects.filter(
+        held("item__location"),
         deleted=False,
         item__location__facility=facility,
-        item__location__inventory_usage__in=HELD_USAGES,
         created_date__lte=as_of,
     ).exclude(status__in=MEDICATION_DISPENSE_CANCELLED_STATUSES)
     quantities = defaultdict(lambda: ZERO)
@@ -275,12 +278,9 @@ def split_by_location(facility, as_of, batch_rows):
     for (batch_id, place_id), quantity in location_quantities(facility, as_of).items():
         if quantity:
             by_batch[batch_id].append((place_id, quantity))
-    # The base manager keeps soft-deleted locations: stock left in one still belongs to the facility.
     places = {
         place["id"]: place
-        for place in FacilityLocation._base_manager.filter(facility=facility).values(
-            "id", "external_id", "name", "deleted"
-        )
+        for place in FacilityLocation.objects.filter(facility=facility).values("id", "external_id", "name")
     }
     rows = []
     for row in batch_rows:
@@ -291,7 +291,6 @@ def split_by_location(facility, as_of, batch_rows):
                     **row,
                     "location_id": str(place["external_id"]),
                     "location_name": place["name"],
-                    "flags": ",".join(filter(None, [row["flags"], "deleted_location" if place["deleted"] else ""])),
                     "quantity": quantity,
                     "value": quantity * row["unit_cost"] if row["unit_cost"] is not None else None,
                 }

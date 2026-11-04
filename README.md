@@ -93,7 +93,7 @@ reset the bill to draft in Odoo first.
 Values a facility's stock at any date. It produces one row per batch, using Care's own receipts, transfers and dispenses. It adds no tables and no core fields.
 
 - A Care `Product` is one batch. Every completed purchase receipt line is a cost layer for that batch, and the stock still held comes from the newest layers.
-- The facility holds what sits in `store` or `none` locations, including stock moving between them. Stock leaves through dispenses and through transfers to `consumption`, `adjustment` or `supplier` locations.
+- The facility holds what sits in `store` or `none` locations that haven't been deleted, including stock moving between them. Stock leaves through dispenses and through transfers to `consumption`, `adjustment` or `supplier` locations.
 - Unit cost per receipt line:
   1. The confirmed cost stored on the line at `extensions.valuation_cost`.
   2. The Care pack price, after free packs and percentage discount. Lines that store a line total instead are detected against the batch's `purchase_price`.
@@ -114,7 +114,7 @@ python manage.py value_stock --facility <uuid> --as-of 2026-04-30 --output april
 
 For superusers, `GET /api/care_odoo/stock-valuation/?facility=<uuid>&as_of=YYYY-MM-DD&output=csv` returns the same rows.
 
-To see where the stock sits, add `group_by=location` to the API or `--by-location` to the command. Each batch row is then split across the locations holding it, valued at the batch's facility-level FIFO unit cost, so the split always adds up to the batch row. Stock moving between two held locations counts at its destination. Stock left in a location that has since been deleted is kept and flagged `deleted_location`. Leave out `output` to get JSON. A Google Sheet can read from it directly.
+To see where the stock sits, add `group_by=location` to the API or `--by-location` to the command. Each batch row is then split across the locations holding it, valued at the batch's facility-level FIFO unit cost, so the split always adds up to the batch row. Stock moving between two held locations counts at its destination. Leave out `output` to get JSON. A Google Sheet can read from it directly.
 
 ## License
 
