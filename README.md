@@ -105,11 +105,22 @@ Values a facility's stock at any date. It produces one row per batch, using Care
 Load confirmed costs from posted vendor bills, then value a day (end of day, India time):
 
 ```bash
-# CSV columns: care_line_id, price_subtotal (bill line total excl. tax), optional reference.
-# Several bill lines for one Care line are added together; any bad row means nothing is saved.
-# Safe to rerun: it rewrites only lines whose cost changed, without save hooks or resync.
-python manage.py import_valuation_costs --file posted-bill-lines.csv --source odoo_bill
+# Reads every posted vendor bill line that came from Care straight from Odoo
+# (care_connector's GET /api/account/move/vendor-bill/lines) and stores its cost on the receipt line,
+# per base unit: line subtotal excl. tax / supplied_item_quantity. Costs whose bill is no longer posted
+# are taken off. Lines it can't match are skipped and listed, as are bills that received another
+# quantity than Care sent. Safe to rerun: it rewrites only lines whose cost changed, without save
+# hooks or resync. --dry-run shows what would change.
+python manage.py sync_valuation_costs
 python manage.py value_stock --facility <uuid> --as-of 2026-04-30 --output april.csv
+```
+
+Set `CARE_ODOO_VALUATION_COST_SYNC=true` to run the sync every night at 2 am (India time) through Celery beat.
+
+Costs can also come from a CSV. Columns: care_line_id, price_subtotal (bill line total excl. tax), optional reference. Several rows for one Care line are added together, and any bad row means nothing is saved. This never takes a cost off.
+
+```bash
+python manage.py import_valuation_costs --file posted-bill-lines.csv --source odoo_bill
 ```
 
 For superusers, `GET /api/care_odoo/stock-valuation/?facility=<uuid>&as_of=YYYY-MM-DD&output=csv` returns the same rows.

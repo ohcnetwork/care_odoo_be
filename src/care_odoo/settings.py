@@ -113,6 +113,8 @@ DEFAULTS = {
     # Maps a delivery order's destination location external ID to the Odoo GRN sequence code
     # used to number its vendor bill, e.g. "<location_id>=grn.lab.sequence,<location_id>=grn.number.sequence"
     "CARE_ODOO_GRN_SEQUENCE_MAP": {},
+    # Store posted vendor bill costs on Care receipt lines every night at 2 am, for stock valuation
+    "CARE_ODOO_VALUATION_COST_SYNC": False,
 }
 
 # Required settings for production

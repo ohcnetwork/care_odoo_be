@@ -1,4 +1,5 @@
 import io
+from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -21,8 +22,10 @@ from django.db.models import Sum
 from django.test import TestCase
 from model_bakery import baker
 
+from care_odoo.resources.stock_valuation.bill_costs import cost_changes
 from care_odoo.resources.stock_valuation.costing import care_unit_cost
 from care_odoo.resources.stock_valuation.valuation import value_inventory
+from care_odoo.tasks import sync_valuation_costs
 
 
 def day(number):
@@ -240,6 +243,137 @@ class FifoValuationTests(CareAPITestBase):
             path.write_text(f"care_line_id,price_subtotal\n{uuid4()},500\n")
             with self.assertRaises(CommandError):
                 call_command("import_valuation_costs", file=str(path), stdout=io.StringIO())
+
+    def receipt_line(self, quantity):
+        return SupplyDelivery.objects.filter(order__origin__isnull=True, supplied_item_quantity=quantity).get()
+
+    def bill_line(self, care_line_id, subtotal, *, received, bill="BILL/1"):
+        return {
+            "id": 1,
+            "care_line_id": str(care_line_id),
+            "bill": bill,
+            "price_subtotal": subtotal,
+            "quantity": received,
+            "received_qty": received,
+            "free_qty": 0.0,
+        }
+
+    def odoo(self, *pages):
+        """Odoo answering the posted bill line requests with these pages in turn."""
+        return mock.patch("care_odoo.connector.connector.OdooConnector.call_api", side_effect=list(pages))
+
+    def sync(self, *pages, **options):
+        output = io.StringIO()
+        with self.odoo(*pages) as call_api:
+            call_command("sync_valuation_costs", stdout=output, **options)
+        return output.getvalue(), call_api
+
+    def set_cost(self, line, cost):
+        SupplyDelivery.objects.filter(id=line.id).update(extensions={**line.extensions, "valuation_cost": cost})
+
+    def test_sync_stores_posted_bill_costs_page_by_page(self):
+        newest = self.receipt_line(50)
+        # Billed in two lines that come back on different pages: 300 + 200 for the 50 units of 5 packs
+        output, call_api = self.sync(
+            {"lines": [self.bill_line(newest.external_id, 300.0, received=3.0)], "next_after_id": 7},
+            {"lines": [self.bill_line(newest.external_id, 200.0, received=2.0, bill="BILL/2")], "next_after_id": None},
+        )
+        self.assertEqual(
+            [call.args for call in call_api.call_args_list],
+            [
+                ("api/account/move/vendor-bill/lines?after_id=0&limit=2000", {}, "GET"),
+                ("api/account/move/vendor-bill/lines?after_id=7&limit=2000", {}, "GET"),
+            ],
+        )
+        self.assertFalse(call_api.call_args.kwargs["log_response"])
+        self.assertIn("1 receipt lines on posted Odoo bills: 1 costs set or changed, 0 taken off", output)
+        self.assertNotIn("Skipped", output)
+        self.assertNotIn("another quantity", output)
+        newest.refresh_from_db()
+        self.assertEqual(
+            newest.extensions["valuation_cost"],
+            {"unit_cost": "10.000000", "source": "odoo_bill", "reference": "BILL/1, BILL/2"},
+        )
+        self.assertIn("supply_delivery_extension", newest.extensions)
+        self.assertEqual(round(self.row(6)["value"], 6), Decimal(50 * 10 + 40 * 8))
+
+        output, _call_api = self.sync(
+            {"lines": [self.bill_line(newest.external_id, 500.0, received=5.0)], "next_after_id": None}
+        )
+        self.assertIn("1 costs set or changed", output)  # one bill line now, so one reference
+
+    def test_sync_takes_off_costs_whose_bill_is_no_longer_posted(self):
+        older, newest = self.receipt_line(100), self.receipt_line(50)
+        self.set_cost(older, {"unit_cost": "9", "source": "odoo_bill", "reference": "BILL/0"})
+        typed = self.receive(2, 10, packs=1, pack_price=80)
+        self.set_cost(typed, {"unit_cost": "7", "source": "confirmed", "reference": ""})
+        output, _call_api = self.sync(
+            {"lines": [self.bill_line(newest.external_id, 500.0, received=5.0)], "next_after_id": None}
+        )
+        self.assertIn("1 costs set or changed, 1 taken off as their bill is no longer posted", output)
+        older.refresh_from_db()
+        typed.refresh_from_db()
+        self.assertNotIn("valuation_cost", older.extensions)
+        self.assertIn("supply_delivery_extension", older.extensions)
+        self.assertEqual(typed.extensions["valuation_cost"]["unit_cost"], "7")
+
+    def test_sync_skips_lines_it_cannot_match_and_notes_other_quantities(self):
+        newest = self.receipt_line(50)
+        unknown = uuid4()
+        output, _call_api = self.sync(
+            {
+                "lines": [
+                    self.bill_line(newest.external_id, 500.0, received=6.0),
+                    self.bill_line(unknown, 10.0, received=1.0),
+                    self.bill_line("RE/123", 10.0, received=1.0),
+                ],
+                "next_after_id": None,
+            }
+        )
+        self.assertIn("3 receipt lines on posted Odoo bills: 1 costs set or changed", output)
+        self.assertIn("Skipped 2:", output)
+        self.assertIn("RE/123: not a Care receipt line ID", output)
+        self.assertIn(f"{unknown}: no Care receipt line with a quantity", output)
+        self.assertIn("1 bills received another quantity than Care sent", output)
+        self.assertIn(f"{newest.external_id}: 5, 6\n", output)
+        newest.refresh_from_db()
+        self.assertEqual(newest.extensions["valuation_cost"]["unit_cost"], "10.000000")
+
+    def test_sync_dry_run_saves_nothing(self):
+        newest = self.receipt_line(50)
+        output, _call_api = self.sync(
+            {"lines": [self.bill_line(newest.external_id, 500.0, received=5.0)], "next_after_id": None},
+            dry_run=True,
+        )
+        self.assertTrue(output.startswith("Dry run, nothing saved. 1 receipt lines"))
+        newest.refresh_from_db()
+        self.assertNotIn("valuation_cost", newest.extensions)
+
+    def test_sync_refuses_an_empty_answer(self):
+        older = self.receipt_line(100)
+        self.set_cost(older, {"unit_cost": "9", "source": "odoo_bill", "reference": "BILL/0"})
+        with self.assertRaisesMessage(CommandError, "Nothing saved: Odoo returned no posted vendor bill lines"):
+            self.sync({"lines": [], "next_after_id": None})
+        older.refresh_from_db()
+        self.assertEqual(older.extensions["valuation_cost"]["unit_cost"], "9")
+
+    def test_saving_keeps_changes_made_since_reading(self):
+        newest = self.receipt_line(50)
+        changes = cost_changes({str(newest.external_id): Decimal(500)}, defaultdict(list), "odoo_bill")
+        # Someone edits the line in Care before the costs are saved
+        SupplyDelivery.objects.filter(id=newest.id).update(extensions={**newest.extensions, "note": "edited"})
+        changes.save()
+        newest.refresh_from_db()
+        self.assertEqual(newest.extensions["note"], "edited")
+        self.assertEqual(newest.extensions["valuation_cost"]["unit_cost"], "10.000000")
+
+    def test_nightly_task_syncs(self):
+        newest = self.receipt_line(50)
+        with self.odoo({"lines": [self.bill_line(newest.external_id, 500.0, received=5.0)], "next_after_id": None}):
+            result = sync_valuation_costs()
+        self.assertEqual(
+            result, {"lines": 1, "changed": 1, "removed": 0, "skipped": 0, "quantity_differences": 0}
+        )
 
     def test_stock_without_layer_uses_product_price_and_says_so(self):
         # A patient return adds 100 units that no purchase layer covers.
