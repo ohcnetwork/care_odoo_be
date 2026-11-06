@@ -1,4 +1,4 @@
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
 from care.emr.api.viewsets.base import EMRBaseViewSet
@@ -60,6 +60,8 @@ class PaymentMethodLineViewSet(EMRBaseViewSet):
 
             return Response(serialized_payment_methods)
 
+        except APIException:
+            raise
         except Exception as e:
             raise ValidationError(
                 f"Error fetching payment method lines from Odoo: {str(e)}"
@@ -87,6 +89,8 @@ class PaymentMethodLineViewSet(EMRBaseViewSet):
 
             return Response(payment_method_data.model_dump())
 
+        except APIException:
+            raise
         except Exception as e:
             raise ValidationError(
                 f"Error fetching payment method line from Odoo: {str(e)}"
