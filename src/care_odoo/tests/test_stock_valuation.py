@@ -16,12 +16,15 @@ from care.emr.resources.inventory.inventory_item.sync_inventory_item import (
     sync_inventory_item,
 )
 from care.utils.tests.base import CareAPITestBase
+from celery.signals import task_retry
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db.models import Sum
 from django.test import TestCase
 from model_bakery import baker
+from rest_framework.exceptions import ValidationError
 
+from care_odoo.connector.connector import OdooConnectionError
 from care_odoo.resources.stock_valuation.bill_costs import cost_changes
 from care_odoo.resources.stock_valuation.costing import care_unit_cost
 from care_odoo.resources.stock_valuation.valuation import value_inventory
@@ -356,6 +359,103 @@ class FifoValuationTests(CareAPITestBase):
             self.sync({"lines": [], "next_after_id": None})
         older.refresh_from_db()
         self.assertEqual(older.extensions["valuation_cost"]["unit_cost"], "9")
+
+    def connection_reset(self):
+        """What the connector raises when Odoo resets the connection while its answer is read."""
+        return OdooConnectionError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')")
+
+    def no_pause(self):
+        return mock.patch("care_odoo.resources.stock_valuation.bill_costs.sleep")
+
+    def test_sync_asks_again_for_a_page_when_the_connection_drops(self):
+        newest = self.receipt_line(50)
+        second = self.bill_line(newest.external_id, 200.0, received=2.0, bill="BILL/2")
+        with self.no_pause() as sleep:
+            output, call_api = self.sync(
+                {"lines": [self.bill_line(newest.external_id, 300.0, received=3.0)], "next_after_id": 7},
+                self.connection_reset(),
+                {"lines": [second], "next_after_id": None},
+            )
+        self.assertEqual(
+            [call.args for call in call_api.call_args_list],
+            [
+                ("api/account/move/vendor-bill/lines?after_id=0&limit=2000", {}, "GET"),
+                ("api/account/move/vendor-bill/lines?after_id=7&limit=2000", {}, "GET"),
+                ("api/account/move/vendor-bill/lines?after_id=7&limit=2000", {}, "GET"),
+            ],
+        )
+        sleep.assert_called_once_with(5)
+        self.assertIn("1 receipt lines on posted Odoo bills: 1 costs set or changed", output)
+        newest.refresh_from_db()
+        self.assertEqual(
+            newest.extensions["valuation_cost"],
+            {"unit_cost": "10.000000", "source": "odoo_bill", "reference": "BILL/1, BILL/2"},
+        )
+
+    def test_sync_asks_again_when_odoo_answers_with_an_error(self):
+        newest = self.receipt_line(50)
+        with self.no_pause() as sleep:
+            output, call_api = self.sync(
+                # What the connector raises for Odoo's own error, then for a proxy's page that isn't JSON
+                ValidationError("Unexpected error: canceling statement due to statement timeout"),
+                ValidationError("Expecting value: line 1 column 1 (char 0)"),
+                {"lines": [self.bill_line(newest.external_id, 500.0, received=5.0)], "next_after_id": None},
+            )
+        self.assertEqual(call_api.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(10)])
+        self.assertIn("1 receipt lines on posted Odoo bills: 1 costs set or changed", output)
+        newest.refresh_from_db()
+        self.assertEqual(newest.extensions["valuation_cost"]["unit_cost"], "10.000000")
+
+    def test_sync_gives_up_after_three_failed_reads_of_a_page(self):
+        older = self.receipt_line(100)
+        self.set_cost(older, {"unit_cost": "9", "source": "odoo_bill", "reference": "BILL/0"})
+        first_page = {"lines": [self.bill_line(older.external_id, 800.0, received=10.0)], "next_after_id": 7}
+        failures = (
+            self.connection_reset(),
+            ValidationError("Unexpected error"),
+            ValidationError("Invalid credentials"),
+        )
+        with (
+            self.no_pause() as sleep,
+            self.odoo(first_page, *failures) as call_api,
+            self.assertRaisesMessage(CommandError, "Nothing saved: Invalid credentials"),
+        ):
+            call_command("sync_valuation_costs", stdout=io.StringIO())
+        self.assertEqual(call_api.call_count, 4)
+        self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(10)])
+        older.refresh_from_db()
+        self.assertEqual(older.extensions["valuation_cost"]["unit_cost"], "9")
+
+    def test_nightly_task_starts_over_after_any_failure(self):
+        newest = self.receipt_line(50)
+        page = {"lines": [self.bill_line(newest.external_id, 500.0, received=5.0)], "next_after_id": None}
+        retries = []
+
+        def note_retry(reason=None, **kwargs):
+            retries.append((type(reason.exc).__name__, reason.when))
+
+        task_retry.connect(note_retry)
+        self.addCleanup(task_retry.disconnect, note_retry)
+
+        # The first run can't read a page, the second gets no lines at all from Odoo, the third goes through
+        nothing = {"lines": [], "next_after_id": None}
+        with self.no_pause(), self.odoo(*[self.connection_reset()] * 3, nothing, page) as call_api:
+            result = sync_valuation_costs.apply()
+        self.assertEqual(
+            result.get(), {"lines": 1, "changed": 1, "removed": 0, "skipped": 0, "quantity_differences": 0}
+        )
+        self.assertEqual(call_api.call_count, 5)
+        self.assertEqual(retries, [("OdooConnectionError", 900), ("ValueError", 900)])
+
+        # Four runs of three reads each, then the task fails
+        retries.clear()
+        with self.no_pause(), self.odoo(*[self.connection_reset()] * 12) as call_api:
+            result = sync_valuation_costs.apply()
+        self.assertTrue(result.failed())
+        self.assertIsInstance(result.result, OdooConnectionError)
+        self.assertEqual(call_api.call_count, 12)
+        self.assertEqual(retries, [("OdooConnectionError", 900)] * 3)
 
     def test_saving_keeps_changes_made_since_reading(self):
         newest = self.receipt_line(50)

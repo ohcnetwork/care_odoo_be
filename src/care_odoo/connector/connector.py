@@ -9,6 +9,17 @@ from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
 
+# Odoo couldn't be reached, didn't answer in time, or the connection broke while its answer was read
+CONNECTION_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.Timeout,
+)
+
+
+class OdooConnectionError(ValidationError):
+    """The connection to Odoo failed rather than the request. Asking again may work."""
+
 
 class OdooConnector:
     @classmethod
@@ -44,17 +55,21 @@ class OdooConnector:
             "db": plugin_settings.CARE_ODOO_DATABASE,
         }
 
+        # Odoo's GET routes read only the query string. A body they leave unread on the socket can make the
+        # server reset the connection, so GETs send none.
+        body = None if method.upper() == "GET" else data
+
         # Log curl equivalent for debugging
         try:
             headers_str = " ".join([f"-H '{k}: {v}'" for k, v in headers.items()])
-            data_str = f"-d '{json.dumps(data)}'" if data else ""
+            data_str = f"-d '{json.dumps(body)}'" if body else ""
             curl_command = f"curl -X {method} {headers_str} {data_str} '{url}'"
             logger.info("Equivalent curl command:\n%s", curl_command)
         except Exception as e:
             logger.info(e)
 
         try:
-            response = requests.request(method, url, headers=headers, json=data, timeout=30)
+            response = requests.request(method, url, headers=headers, json=body, timeout=30)
             logger.info("Odoo API Response Status Code: %s", url)
             logger.info("Odoo API Response Status: %s", response.status_code)
             if log_response:
@@ -70,6 +85,9 @@ class OdooConnector:
                 raise ValidationError(str(error_msg))
 
             return response_json
+        except CONNECTION_ERRORS as e:
+            logger.exception("Odoo API Connection Error: %s", str(e))
+            raise OdooConnectionError(str(e)) from e
         except requests.exceptions.RequestException as e:
             logger.exception("Odoo API Resonse Processing Error: %s", str(e))
             raise ValidationError(str(e)) from e

@@ -179,7 +179,15 @@ def verify_invoice_exists_or_cleanup(self, invoice_external_id: str) -> dict:
         raise
 
 
-@shared_task(name="care_odoo.tasks.sync_valuation_costs")
+@shared_task(
+    name="care_odoo.tasks.sync_valuation_costs",
+    # Nothing is saved until every page is read, and the save is one transaction, so starting over after any
+    # failure is safe: up to four runs, 15 minutes apart. Keep the gap under an hour, Redis's default visibility
+    # timeout, or a task waiting to start over can be delivered twice.
+    autoretry_for=(Exception,),
+    max_retries=3,
+    default_retry_delay=900,
+)
 def sync_valuation_costs() -> dict:
     """Store posted Odoo vendor bill costs on Care receipt lines for stock valuation (see sync_valuation_costs)."""
     # Import here to avoid circular imports

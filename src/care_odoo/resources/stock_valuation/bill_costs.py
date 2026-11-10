@@ -7,21 +7,29 @@ subtotal / supplied_item_quantity, free units included. The costs come straight 
 (sync_valuation_costs) or from a CSV (import_valuation_costs).
 """
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
+from time import sleep
 from urllib.parse import urlencode
 from uuid import UUID
 
 from care.emr.models.supply_delivery import SupplyDelivery
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
 
 from care_odoo.connector.connector import OdooConnector
 from care_odoo.extensions import VALUATION_COST
 
+logger = logging.getLogger(__name__)
+
 ODOO_BILL = "odoo_bill"
 # Bill lines asked from Odoo per request
 PAGE_SIZE = 2000
+# Times a page is asked for when reading it fails, and seconds to wait before asking again
+PAGE_ATTEMPTS = 3
+RETRY_PAUSE = 5
 
 
 @dataclass
@@ -92,13 +100,34 @@ def cost_changes(subtotals, references, source, received=None):
     return changes
 
 
+def bill_lines_page(after_id):
+    """
+    The page of posted bill lines after this Odoo line id. Reading a page changes nothing, so a failed read is
+    asked again, whether the connection failed or Odoo answered with an error.
+    """
+    query = urlencode({"after_id": after_id, "limit": PAGE_SIZE})
+    endpoint = f"api/account/move/vendor-bill/lines?{query}"
+    for attempt in range(1, PAGE_ATTEMPTS):
+        try:
+            # Pages are too large to log in full
+            return OdooConnector.call_api(endpoint, {}, "GET", log_response=False)
+        except ValidationError as error:  # how the connector reports every failure
+            logger.warning(
+                "Reading posted bill lines after %s from Odoo failed (attempt %s of %s), asking again: %s",
+                after_id,
+                attempt,
+                PAGE_ATTEMPTS,
+                error,
+            )
+            sleep(RETRY_PAUSE * attempt)
+    return OdooConnector.call_api(endpoint, {}, "GET", log_response=False)
+
+
 def posted_bill_lines():
     """Every line of a posted Odoo vendor bill that came from a Care receipt line."""
     bill_lines, after_id = [], 0
     while after_id is not None:
-        query = urlencode({"after_id": after_id, "limit": PAGE_SIZE})
-        # Pages are too large to log in full
-        page = OdooConnector.call_api(f"api/account/move/vendor-bill/lines?{query}", {}, "GET", log_response=False)
+        page = bill_lines_page(after_id)
         bill_lines += page["lines"]
         after_id = page["next_after_id"]
     return bill_lines
