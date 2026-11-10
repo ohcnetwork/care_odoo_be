@@ -4,7 +4,7 @@ from celery import current_app, shared_task
 from celery.schedules import crontab
 from requests.exceptions import ConnectionError, Timeout
 
-from care_odoo.connector.connector import OdooConnector
+from care_odoo.connector.connector import OdooConnectionError, OdooConnector
 from care_odoo.resources.account_move_payment.spec import AccountPaymentCancelApiRequest
 from care_odoo.settings import plugin_settings
 
@@ -179,7 +179,14 @@ def verify_invoice_exists_or_cleanup(self, invoice_external_id: str) -> dict:
         raise
 
 
-@shared_task(name="care_odoo.tasks.sync_valuation_costs")
+@shared_task(
+    name="care_odoo.tasks.sync_valuation_costs",
+    # Each page is already asked for again a few times; if the connection keeps failing, start over later.
+    # Nothing is saved until every page is read, so starting over is safe.
+    autoretry_for=(OdooConnectionError,),
+    max_retries=2,
+    default_retry_delay=600,
+)
 def sync_valuation_costs() -> dict:
     """Store posted Odoo vendor bill costs on Care receipt lines for stock valuation (see sync_valuation_costs)."""
     # Import here to avoid circular imports

@@ -21,7 +21,9 @@ from django.core.management.base import CommandError
 from django.db.models import Sum
 from django.test import TestCase
 from model_bakery import baker
+from rest_framework.exceptions import ValidationError
 
+from care_odoo.connector.connector import OdooConnectionError
 from care_odoo.resources.stock_valuation.bill_costs import cost_changes
 from care_odoo.resources.stock_valuation.costing import care_unit_cost
 from care_odoo.resources.stock_valuation.valuation import value_inventory
@@ -356,6 +358,80 @@ class FifoValuationTests(CareAPITestBase):
             self.sync({"lines": [], "next_after_id": None})
         older.refresh_from_db()
         self.assertEqual(older.extensions["valuation_cost"]["unit_cost"], "9")
+
+    def connection_reset(self):
+        """What the connector raises when Odoo resets the connection while its answer is read."""
+        return OdooConnectionError("Connection broken: ConnectionResetError(104, 'Connection reset by peer')")
+
+    def no_pause(self):
+        return mock.patch("care_odoo.resources.stock_valuation.bill_costs.sleep")
+
+    def test_sync_asks_again_for_a_page_when_the_connection_drops(self):
+        newest = self.receipt_line(50)
+        second = self.bill_line(newest.external_id, 200.0, received=2.0, bill="BILL/2")
+        with self.no_pause() as sleep:
+            output, call_api = self.sync(
+                {"lines": [self.bill_line(newest.external_id, 300.0, received=3.0)], "next_after_id": 7},
+                self.connection_reset(),
+                {"lines": [second], "next_after_id": None},
+            )
+        self.assertEqual(
+            [call.args for call in call_api.call_args_list],
+            [
+                ("api/account/move/vendor-bill/lines?after_id=0&limit=2000", {}, "GET"),
+                ("api/account/move/vendor-bill/lines?after_id=7&limit=2000", {}, "GET"),
+                ("api/account/move/vendor-bill/lines?after_id=7&limit=2000", {}, "GET"),
+            ],
+        )
+        sleep.assert_called_once_with(5)
+        self.assertIn("1 receipt lines on posted Odoo bills: 1 costs set or changed", output)
+        newest.refresh_from_db()
+        self.assertEqual(
+            newest.extensions["valuation_cost"],
+            {"unit_cost": "10.000000", "source": "odoo_bill", "reference": "BILL/1, BILL/2"},
+        )
+
+    def test_sync_gives_up_when_the_connection_keeps_failing(self):
+        older = self.receipt_line(100)
+        self.set_cost(older, {"unit_cost": "9", "source": "odoo_bill", "reference": "BILL/0"})
+        first_page = {"lines": [self.bill_line(older.external_id, 800.0, received=10.0)], "next_after_id": 7}
+        with (
+            self.no_pause() as sleep,
+            self.odoo(first_page, *[self.connection_reset()] * 3) as call_api,
+            self.assertRaisesMessage(CommandError, "Nothing saved: Connection broken"),
+        ):
+            call_command("sync_valuation_costs", stdout=io.StringIO())
+        self.assertEqual(call_api.call_count, 4)
+        self.assertEqual(sleep.call_args_list, [mock.call(5), mock.call(10)])
+        older.refresh_from_db()
+        self.assertEqual(older.extensions["valuation_cost"]["unit_cost"], "9")
+
+    def test_sync_does_not_ask_again_when_odoo_refuses(self):
+        with (
+            self.no_pause() as sleep,
+            self.odoo(ValidationError("Invalid credentials")) as call_api,
+            self.assertRaisesMessage(CommandError, "Nothing saved: Invalid credentials"),
+        ):
+            call_command("sync_valuation_costs", stdout=io.StringIO())
+        call_api.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_nightly_task_starts_over_when_every_attempt_at_a_page_fails(self):
+        newest = self.receipt_line(50)
+        page = {"lines": [self.bill_line(newest.external_id, 500.0, received=5.0)], "next_after_id": None}
+        with self.no_pause(), self.odoo(*[self.connection_reset()] * 3, page) as call_api:
+            result = sync_valuation_costs.apply()
+        self.assertEqual(
+            result.get(), {"lines": 1, "changed": 1, "removed": 0, "skipped": 0, "quantity_differences": 0}
+        )
+        self.assertEqual(call_api.call_count, 4)
+
+        # Three runs of three attempts each, then the task fails
+        with self.no_pause(), self.odoo(*[self.connection_reset()] * 9) as call_api:
+            result = sync_valuation_costs.apply()
+        self.assertTrue(result.failed())
+        self.assertIsInstance(result.result, OdooConnectionError)
+        self.assertEqual(call_api.call_count, 9)
 
     def test_saving_keeps_changes_made_since_reading(self):
         newest = self.receipt_line(50)
