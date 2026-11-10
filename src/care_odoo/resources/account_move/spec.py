@@ -66,6 +66,8 @@ class AccountMoveApiRequest(BaseModel):
     grn_sequence_code: str | None = None
     room_number: str | None = None
     ip_bill_no: str | None = None
+    # Care's rounded invoice total; Odoo sets its round-off so the invoice totals the same
+    care_total: str | None = None
 
 
 class VendorBillApiRequest(BaseModel):
