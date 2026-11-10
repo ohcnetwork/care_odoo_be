@@ -17,8 +17,9 @@ from uuid import UUID
 
 from care.emr.models.supply_delivery import SupplyDelivery
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
 
-from care_odoo.connector.connector import OdooConnectionError, OdooConnector
+from care_odoo.connector.connector import OdooConnector
 from care_odoo.extensions import VALUATION_COST
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 ODOO_BILL = "odoo_bill"
 # Bill lines asked from Odoo per request
 PAGE_SIZE = 2000
-# Times a page is asked for when the connection to Odoo fails, and seconds to wait before asking again
+# Times a page is asked for when reading it fails, and seconds to wait before asking again
 PAGE_ATTEMPTS = 3
 RETRY_PAUSE = 5
 
@@ -101,8 +102,8 @@ def cost_changes(subtotals, references, source, received=None):
 
 def bill_lines_page(after_id):
     """
-    The page of posted bill lines after this Odoo line id. Asks again when the connection fails, as reading a
-    page changes nothing.
+    The page of posted bill lines after this Odoo line id. Reading a page changes nothing, so a failed read is
+    asked again, whether the connection failed or Odoo answered with an error.
     """
     query = urlencode({"after_id": after_id, "limit": PAGE_SIZE})
     endpoint = f"api/account/move/vendor-bill/lines?{query}"
@@ -110,7 +111,7 @@ def bill_lines_page(after_id):
         try:
             # Pages are too large to log in full
             return OdooConnector.call_api(endpoint, {}, "GET", log_response=False)
-        except OdooConnectionError as error:
+        except ValidationError as error:  # how the connector reports every failure
             logger.warning(
                 "Reading posted bill lines after %s from Odoo failed (attempt %s of %s), asking again: %s",
                 after_id,
