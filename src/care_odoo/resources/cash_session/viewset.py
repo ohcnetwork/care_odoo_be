@@ -2,7 +2,7 @@ import logging
 
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from care.emr.models import FacilityLocation
@@ -125,7 +125,7 @@ class CashSessionViewSet(EMRBaseViewSet):
                 },
                 status=status.HTTP_201_CREATED,
             )
-        except ValidationError:
+        except APIException:
             raise
         except Exception as e:
             logger.exception("Error opening cash session: %s", str(e))
@@ -181,7 +181,7 @@ class CashSessionViewSet(EMRBaseViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
-        except ValidationError:
+        except APIException:
             raise
         except Exception as e:
             logger.exception("Error closing cash session: %s", str(e))
@@ -235,6 +235,8 @@ class CashSessionViewSet(EMRBaseViewSet):
                     {"success": True, "session": None, "message": "No open session"},
                     status=status.HTTP_200_OK,
                 )
+        except APIException:
+            raise
         except Exception as e:
             logger.exception("Error getting current cash session: %s", str(e))
             raise ValidationError(f"Error getting current cash session: {str(e)}") from e
@@ -271,6 +273,8 @@ class CashSessionViewSet(EMRBaseViewSet):
                 {"success": True, "sessions": serialized_sessions},
                 status=status.HTTP_200_OK,
             )
+        except APIException:
+            raise
         except Exception as e:
             logger.exception("Error listing cash sessions: %s", str(e))
             raise ValidationError(f"Error listing cash sessions: {str(e)}") from e
@@ -300,6 +304,8 @@ class CashSessionViewSet(EMRBaseViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
+        except APIException:
+            raise
         except Exception as e:
             logger.exception("Error listing cash counters: %s", str(e))
             raise ValidationError(f"Error listing cash counters: {str(e)}") from e
