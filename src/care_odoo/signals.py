@@ -26,7 +26,7 @@ from care.emr.resources.resource_category.spec import (
     ResourceCategoryResourceTypeOptions,
 )
 from care.users.models import User
-from care_odoo.resources.account_move.delivery_order import OdooDeliveryOrderResource
+from care_odoo.resources.account_move.delivery_order import OdooDeliveryOrderResource, is_purchase_return
 from care_odoo.resources.account_move.invoice import OdooInvoiceResource
 from care_odoo.resources.account_move_payment.payment import OdooPaymentResource
 from care_odoo.resources.product_category.category import OdooCategoryResource
@@ -37,6 +37,13 @@ from care_odoo.settings import plugin_settings
 from care_odoo.tasks import verify_invoice_exists_or_cleanup, verify_payment_exists_or_cleanup
 
 logger = logging.getLogger(__name__)
+
+# An order leaving draft for one of these has been approved by its sender
+APPROVED_ORDER_STATUSES = {
+    SupplyDeliveryOrderStatusOptions.pending.value,
+    SupplyDeliveryOrderStatusOptions.in_progress.value,
+    SupplyDeliveryOrderStatusOptions.completed.value,
+}
 
 
 @receiver(post_save, sender=User)
@@ -216,14 +223,25 @@ def sync_delivery_order_to_odoo(sender, instance, created, **kwargs):
 
     Completing the order creates the bill, or updates it when the order was moved back to draft to add items.
     Cancelling the order cancels the bill. Odoo refuses to change a posted bill, which blocks the status change.
-    Ignores delivery orders with a patient relation (patient-specific deliveries) or an origin (internal transfers).
+    Ignores delivery orders with a patient relation (patient-specific deliveries).
+    Internal transfers reach Odoo only as purchase returns: one to a supplier location that names the supplier
+    gets a draft credit note when the sender approves it, moving it out of draft.
     """
     previous_status = getattr(instance, "_previous_status", None)
     # Skip saves that don't change the status, e.g. a later edit or the GRN number saved back as its name
-    if previous_status == instance.status or instance.origin or instance.patient:
+    if previous_status == instance.status or instance.patient:
         return
 
     odoo_delivery_order = OdooDeliveryOrderResource()
+    if instance.origin_id:
+        if (
+            previous_status == SupplyDeliveryOrderStatusOptions.draft.value
+            and instance.status in APPROVED_ORDER_STATUSES
+            and is_purchase_return(instance)
+        ):
+            odoo_delivery_order.sync_purchase_return_to_odoo_api(instance.external_id)
+        return
+
     if instance.status == SupplyDeliveryOrderStatusOptions.completed.value:
         odoo_delivery_order.sync_delivery_order_to_odoo_api(instance.external_id)
         # The GRN number is saved as the name on a separate copy of the order, so reload it here
