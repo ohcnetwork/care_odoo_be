@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.utils import timezone
@@ -31,6 +32,8 @@ from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
 
+PAISA = Decimal("0.01")
+
 
 def is_purchase_return(delivery_order: DeliveryOrder) -> bool:
     """An internal transfer to a supplier location that names the supplier the stock goes back to."""
@@ -41,28 +44,57 @@ def is_purchase_return(delivery_order: DeliveryOrder) -> bool:
     )
 
 
-def batch_pack_sizes(products) -> dict[int, int]:
+def batch_unit_price(product) -> Decimal:
+    """The batch's purchase price per unit, else its charge item definition's."""
+    return product.purchase_price or Decimal(
+        str(get_purchase_price_from_definition(product.charge_item_definition) or 0)
+    )
+
+
+def batch_packs(products, supplier_id) -> dict[int, tuple[int, Decimal]]:
     """
-    Units in one pack of each batch, by product ID, as the supplier billed it: the pack size of the batch's first
-    receipt from a supplier, else the product's standard pack size, else 1.
+    How each batch goes back to the supplier, by product ID: (units in one pack, price of one pack).
+
+    Care doesn't record which receipt a batch's units came from, so the batch's completed supplier receipts stand
+    in, oldest first: only those from the supplier the stock goes back to, when there are any. The pack size is the
+    first of these receipts', else the product's standard pack size, else 1. The pack price is the total purchase
+    price of the first of them in that pack size whose price per unit is the batch's purchase price to the paisa:
+    the price the supplier billed, before Care rounded it to a unit price. A receipt priced otherwise (a line total
+    from the opening stock load, an older price) is passed over, and the batch's purchase price × the pack size is
+    used instead.
     """
-    sizes = {}
-    receipts = (
+    receipts = defaultdict(list)
+    for product_id, receipt_supplier_id, pack_size, pack_price in (
         SupplyDelivery.objects.filter(
             supplied_item__in=products,
             order__origin__isnull=True,
             order__patient__isnull=True,
+            status=SupplyDeliveryStatusOptions.completed.value,
             supplied_item_pack_size__gt=0,
         )
         .order_by("id")
-        .values_list("supplied_item_id", "supplied_item_pack_size")
-    )
-    for product_id, pack_size in receipts:
-        sizes.setdefault(product_id, pack_size)
+        .values_list("supplied_item_id", "order__supplier_id", "supplied_item_pack_size", "total_purchase_price")
+    ):
+        receipts[product_id].append((receipt_supplier_id, pack_size, pack_price))
+
+    packs = {}
     for product in products:
-        if product.id not in sizes:
-            sizes[product.id] = product.standard_pack_size if (product.standard_pack_size or 0) > 0 else 1
-    return sizes
+        candidates = [receipt for receipt in receipts[product.id] if receipt[0] == supplier_id] or receipts[product.id]
+        if candidates:
+            pack_size = candidates[0][1]
+        else:
+            pack_size = product.standard_pack_size if (product.standard_pack_size or 0) > 0 else 1
+        unit_price = batch_unit_price(product)
+        pack_price = next(
+            (
+                price
+                for _supplier_id, size, price in candidates
+                if size == pack_size and price and abs(price / size - unit_price) < PAISA
+            ),
+            unit_price * pack_size,
+        )
+        packs[product.id] = (pack_size, pack_price.quantize(PAISA, rounding=ROUND_HALF_UP))
+    return packs
 
 
 def plain_number(value: Decimal) -> str:
@@ -231,8 +263,8 @@ class OdooDeliveryOrderResource:
         Create a draft supplier credit note in Odoo for a purchase return its sender has approved.
 
         Suppliers credit whole packs (strips) at the pack price, so each item still on the order goes on in packs,
-        at its batch's purchase price (the charge item definition's when the batch has none) × the pack size. An
-        item that isn't a whole number of packs refuses the approval. Odoo adds the product's purchase taxes. The
+        at the pack price the supplier billed for its batch (see batch_packs). An item that isn't a whole number of
+        packs refuses the approval. Odoo adds the product's purchase taxes. The
         credit note stays in draft for finance to check against the supplier's own and post. care_fe can't move an
         approved transfer back to draft or cancel it, so Care never changes the credit note afterwards.
 
@@ -270,7 +302,10 @@ class OdooDeliveryOrderResource:
             )
             for supply_delivery in supply_deliveries
         ]
-        pack_sizes = batch_pack_sizes([product for _supply_delivery, product in returned if product])
+        packs_by_batch = batch_packs(
+            [product for _supply_delivery, product in returned if product and product.charge_item_definition],
+            delivery_order.supplier_id,
+        )
         for supply_delivery, product in returned:
             if not product or not product.charge_item_definition:
                 logger.warning(
@@ -279,7 +314,7 @@ class OdooDeliveryOrderResource:
                     supply_delivery.external_id,
                 )
                 continue
-            pack_size = pack_sizes[product.id]
+            pack_size, pack_price = packs_by_batch[product.id]
             packs, loose = divmod(supply_delivery.supplied_item_quantity or Decimal(0), pack_size)
             if loose:
                 part_packs.append(
@@ -288,14 +323,11 @@ class OdooDeliveryOrderResource:
                     f"of {pack_size}"
                 )
                 continue
-            unit_price = product.purchase_price or Decimal(
-                str(get_purchase_price_from_definition(product.charge_item_definition) or 0)
-            )
             invoice_items.append(
                 InvoiceItem(
                     product_data=batch_product_data(product),
                     quantity=plain_number(packs),
-                    sale_price=str((unit_price * pack_size).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+                    sale_price=str(pack_price),
                     x_care_id=str(supply_delivery.external_id),
                 )
             )

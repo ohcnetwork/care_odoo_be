@@ -92,18 +92,23 @@ class SupplierOrderTestBase(CareAPITestBase):
             batch={"lot_number": "AMX-001"},
         )
 
-    def receive(self, batch, pack_size):
-        """A supplier receipt of the batch, in packs of the given size."""
+    def receive(self, batch, pack_size, pack_price=None, packs=10, supplier="default"):
+        """A supplier receipt of the batch, in packs of the given size, at the given price of a pack."""
         order = baker.make(
-            DeliveryOrder, origin=None, destination=self.pharmacy, supplier=self.supplier, status="draft"
+            DeliveryOrder,
+            origin=None,
+            destination=self.pharmacy,
+            supplier=self.supplier if supplier == "default" else supplier,
+            status="draft",
         )
         return baker.make(
             SupplyDelivery,
             order=order,
             supplied_item=batch,
-            supplied_item_quantity=Decimal(pack_size * 10),
-            supplied_item_pack_quantity=10,
+            supplied_item_quantity=Decimal(pack_size * packs),
+            supplied_item_pack_quantity=packs,
             supplied_item_pack_size=pack_size,
+            total_purchase_price=pack_price,
             status="completed",
         )
 
@@ -207,6 +212,60 @@ class PurchaseReturnCreditNoteTests(SupplierOrderTestBase):
         [data] = self.account_moves()
         [item] = data["invoice_items"]
         self.assertEqual((item["quantity"], item["sale_price"]), ("3", "45.72"))
+
+    def test_pack_price_is_what_the_supplier_billed(self):
+        # ₹142.14 a strip of 10 was kept as ₹14.21 a capsule, which × 10 is ₹142.10
+        batch = self.make_batch(Decimal("14.21"), pack_size=10)
+        self.receive(batch, pack_size=10, pack_price=Decimal("142.14"))
+        order = self.make_order()
+        self.add_line(order, 20, batch=batch)
+
+        self.approve(order)
+
+        [data] = self.account_moves()
+        [item] = data["invoice_items"]
+        self.assertEqual((item["quantity"], item["sale_price"]), ("2", "142.14"))
+
+    def test_receipts_priced_otherwise_are_passed_over(self):
+        # An older price before the batch's own, and a line total from the opening stock load
+        repriced = self.make_batch(Decimal("12.5"), pack_size=10)
+        self.receive(repriced, pack_size=10, pack_price=Decimal(130))
+        self.receive(repriced, pack_size=10, pack_price=Decimal("125.04"))
+        opening = self.make_batch(Decimal("14.03"))
+        self.receive(opening, pack_size=1, pack_price=Decimal("1487.18"), packs=106)
+        order = self.make_order()
+        self.add_line(order, 20, batch=repriced)
+        self.add_line(order, 6, batch=opening)
+
+        self.approve(order)
+
+        [data] = self.account_moves()
+        self.assertEqual(
+            [(item["quantity"], item["sale_price"]) for item in data["invoice_items"]],
+            [("2", "125.04"), ("6", "14.03")],
+        )
+
+    def test_receipts_from_the_returns_supplier_come_first(self):
+        # Loaded as opening stock in single units at a line total, then bought from Johal in strips of 10
+        opening_stock = baker.make(Organization, org_type="product_supplier", name="Opening stock")
+        batch = self.make_batch(Decimal("14.21"))
+        self.receive(batch, pack_size=1, pack_price=Decimal("284.20"), packs=20, supplier=opening_stock)
+        self.receive(batch, pack_size=10, pack_price=Decimal("142.14"))
+        to_johal = self.make_order()
+        self.add_line(to_johal, 20, batch=batch)
+        # Never bought from this supplier, so every receipt of the batch counts, the oldest first
+        other = baker.make(Organization, org_type="product_supplier", name="Varghese & Company")
+        to_other = self.make_order(supplier=other)
+        self.add_line(to_other, 20, batch=batch)
+
+        self.approve(to_johal)
+        self.approve(to_other)
+
+        to_johal_data, to_other_data = self.account_moves()
+        [item] = to_johal_data["invoice_items"]
+        self.assertEqual((item["quantity"], item["sale_price"]), ("2", "142.14"))
+        [item] = to_other_data["invoice_items"]
+        self.assertEqual((item["quantity"], item["sale_price"]), ("20", "14.21"))
 
     def test_part_packs_block_the_approval(self):
         order = self.make_order()
