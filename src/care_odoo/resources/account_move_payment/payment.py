@@ -205,6 +205,10 @@ class OdooPaymentResource:
         """
         payment = PaymentReconciliation.objects.get(external_id=payment_id)
 
+        # Insurance payments are never sent to Odoo, so there is nothing to cancel
+        if payment.issuer_type == "insurer":
+            return None
+
         data = AccountPaymentCancelApiRequest(
             x_care_id=str(payment.external_id),
             reason=payment.status,
