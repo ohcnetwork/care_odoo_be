@@ -1,13 +1,18 @@
 import logging
+from collections import defaultdict
+from decimal import ROUND_HALF_UP, Decimal
 
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from rest_framework.exceptions import ValidationError
 
 from care.emr.models.supply_delivery import DeliveryOrder, SupplyDelivery
 from care.emr.resources.inventory.supply_delivery.spec import (
     SupplyDeliveryStatusOptions,
 )
+from care.emr.resources.location.spec import InventoryUsage
 
-from care_odoo.connector.connector import OdooConnector
+from care_odoo.connector.connector import OdooConnectionError, OdooConnector
 from care_odoo.resources.account_move.spec import (
     AccountMoveApiRequest,
     BillType,
@@ -26,6 +31,131 @@ from care_odoo.resources.utils import (
 from care_odoo.settings import plugin_settings
 
 logger = logging.getLogger(__name__)
+
+PAISA = Decimal("0.01")
+
+
+def is_purchase_return(delivery_order: DeliveryOrder) -> bool:
+    """An internal transfer to a supplier location that names the supplier the stock goes back to."""
+    return bool(
+        delivery_order.origin_id
+        and delivery_order.supplier_id
+        and delivery_order.destination.inventory_usage == InventoryUsage.supplier.value
+    )
+
+
+def batch_unit_price(product) -> Decimal:
+    """The batch's purchase price per unit, else its charge item definition's."""
+    return product.purchase_price or Decimal(
+        str(get_purchase_price_from_definition(product.charge_item_definition) or 0)
+    )
+
+
+def batch_packs(products, supplier_id) -> dict[int, tuple[int, Decimal]]:
+    """
+    How each batch goes back to the supplier, by product ID: (units in one pack, price of one pack).
+
+    Care doesn't record which receipt a batch's units came from, so the batch's completed supplier receipts stand
+    in, oldest first: only those from the supplier the stock goes back to, when there are any. The pack size is the
+    first of these receipts', else the product's standard pack size, else 1. The pack price is the total purchase
+    price of the first of them in that pack size whose price per unit is the batch's purchase price to the paisa:
+    the price the supplier billed, before Care rounded it to a unit price. A receipt priced otherwise (a line total
+    from the opening stock load, an older price) is passed over, and the batch's purchase price × the pack size is
+    used instead.
+    """
+    receipts = defaultdict(list)
+    for product_id, receipt_supplier_id, pack_size, pack_price in (
+        SupplyDelivery.objects.filter(
+            supplied_item__in=products,
+            order__origin__isnull=True,
+            order__patient__isnull=True,
+            status=SupplyDeliveryStatusOptions.completed.value,
+            supplied_item_pack_size__gt=0,
+        )
+        .order_by("id")
+        .values_list("supplied_item_id", "order__supplier_id", "supplied_item_pack_size", "total_purchase_price")
+    ):
+        receipts[product_id].append((receipt_supplier_id, pack_size, pack_price))
+
+    packs = {}
+    for product in products:
+        candidates = [receipt for receipt in receipts[product.id] if receipt[0] == supplier_id] or receipts[product.id]
+        if candidates:
+            pack_size = candidates[0][1]
+        else:
+            pack_size = product.standard_pack_size if (product.standard_pack_size or 0) > 0 else 1
+        unit_price = batch_unit_price(product)
+        pack_price = next(
+            (
+                price
+                for _supplier_id, size, price in candidates
+                if size == pack_size and price and abs(price / size - unit_price) < PAISA
+            ),
+            unit_price * pack_size,
+        )
+        packs[product.id] = (pack_size, pack_price.quantize(PAISA, rounding=ROUND_HALF_UP))
+    return packs
+
+
+def plain_number(value: Decimal) -> str:
+    """A quantity without trailing zeros or exponent, e.g. Decimal("60.000000") → "60"."""
+    text = f"{Decimal(value):f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def supplier_partner_data(supplier) -> PartnerData:
+    """The Odoo vendor for a Care supplier organization."""
+    supplier_metadata = supplier.metadata or {}
+    return PartnerData(
+        name=supplier.name,
+        x_care_id=str(supplier.external_id),
+        partner_type=PartnerType.company,
+        phone=supplier_metadata.get("phone", ""),
+        state="kerala",
+        email=supplier_metadata.get("email", ""),
+        agent=False,
+    )
+
+
+def batch_product_data(product) -> ProductData:
+    """The Odoo product for a Care batch, which Odoo finds by its charge item definition."""
+    charge_item_def = product.charge_item_definition
+    if charge_item_def.category:
+        category_data = CategoryData(
+            category_name=charge_item_def.category.title,
+            parent_x_care_id=str(charge_item_def.category.parent.external_id)
+            if charge_item_def.category.parent
+            else "",
+            x_care_id=str(charge_item_def.category.external_id),
+        )
+    else:
+        category_data = CategoryData(
+            category_name="Uncategorized",
+            parent_x_care_id="",
+            x_care_id="",
+        )
+
+    taxes = []
+    for tax in get_taxes_from_definition(charge_item_def):
+        taxes.append(
+            TaxData(
+                tax_name=tax["code"]["display"],
+                tax_percentage=float(tax["factor"]),
+            )
+        )
+
+    return ProductData(
+        product_name=f"{charge_item_def.title}",
+        x_care_id=str(charge_item_def.external_id),
+        mrp=float(get_base_price_from_definition(charge_item_def)),
+        cost=float(product.purchase_price or 0),
+        category=category_data,
+        status=charge_item_def.status,
+        hsn=product.product_knowledge.alternate_identifier
+        if product.product_knowledge and product.product_knowledge.alternate_identifier
+        else "",
+        taxes=taxes,
+    )
 
 
 class OdooDeliveryOrderResource:
@@ -59,17 +189,7 @@ class OdooDeliveryOrderResource:
         if self._is_excluded(delivery_order):
             return None
 
-        # Prepare partner data for supplier
-        supplier_metadata = delivery_order.supplier.metadata or {}
-        partner_data = PartnerData(
-            name=delivery_order.supplier.name,
-            x_care_id=str(delivery_order.supplier.external_id),
-            partner_type=PartnerType.company,
-            phone=supplier_metadata.get("phone", ""),
-            state="kerala",
-            email=supplier_metadata.get("email", ""),
-            agent=False,
-        )
+        partner_data = supplier_partner_data(delivery_order.supplier)
 
         # Prepare invoice items from supply deliveries
         invoice_items = []
@@ -85,57 +205,12 @@ class OdooDeliveryOrderResource:
 
         for supply_delivery in supply_deliveries:
             if supply_delivery.supplied_item and supply_delivery.supplied_item.charge_item_definition:
-                product = supply_delivery.supplied_item
-                charge_item_def = product.charge_item_definition
-                base_price = get_base_price_from_definition(charge_item_def)
                 quantity = supply_delivery.supplied_item_pack_quantity or supply_delivery.supplied_item_quantity or 0
-
                 total_purchase_price = supply_delivery.total_purchase_price or 0
-                item_purchase_price = supply_delivery.supplied_item.purchase_price or 0
-
-                # Get category data if charge item definition exists
-                if product.charge_item_definition and product.charge_item_definition.category:
-                    category_data = CategoryData(
-                        category_name=product.charge_item_definition.category.title,
-                        parent_x_care_id=str(product.charge_item_definition.category.parent.external_id)
-                        if product.charge_item_definition.category.parent
-                        else "",
-                        x_care_id=str(product.charge_item_definition.category.external_id),
-                    )
-                else:
-                    category_data = CategoryData(
-                        category_name="Uncategorized",
-                        parent_x_care_id="",
-                        x_care_id="",
-                    )
-
-                taxes = []
-                for tax in get_taxes_from_definition(product.charge_item_definition):
-                    taxes.append(
-                        TaxData(
-                            tax_name=tax["code"]["display"],
-                            tax_percentage=float(tax["factor"]),
-                        )
-                    )
-
-                product_data = ProductData(
-                    product_name=f"{product.charge_item_definition.title}",
-                    x_care_id=str(product.charge_item_definition.external_id),
-                    mrp=float(base_price),
-                    cost=float(item_purchase_price),
-                    category=category_data,
-                    status=product.charge_item_definition.status,
-                    hsn=product.product_knowledge.alternate_identifier
-                    if product.product_knowledge and product.product_knowledge.alternate_identifier
-                    else "",
-                    taxes=taxes,
-                )
 
                 item = InvoiceItem(
-                    product_data=product_data,
-                    quantity=str(
-                        quantity
-                    ),
+                    product_data=batch_product_data(supply_delivery.supplied_item),
+                    quantity=str(quantity),
                     free_qty=str(
                         ((supply_delivery.extensions or {}).get("supply_delivery_extension") or {}).get("free_quantity")
                         or 0
@@ -181,6 +256,116 @@ class OdooDeliveryOrderResource:
         if grn_number:
             delivery_order.name = grn_number
             delivery_order.save(update_fields=["name"])
+        return response["invoice"]["id"]
+
+    def sync_purchase_return_to_odoo_api(self, delivery_order_id: str) -> int | None:
+        """
+        Create a draft supplier credit note in Odoo for a purchase return its sender has approved.
+
+        Suppliers credit whole packs (strips) at the pack price, so each item still on the order goes on in packs,
+        at the pack price the supplier billed for its batch (see batch_packs). An item that isn't a whole number of
+        packs refuses the approval. Odoo adds the product's purchase taxes. The
+        credit note stays in draft for finance to check against the supplier's own and post. care_fe can't move an
+        approved transfer back to draft or cancel it, so Care never changes the credit note afterwards.
+
+        Returns:
+            Odoo credit note ID, or None when nothing was sent
+        """
+        delivery_order = DeliveryOrder.objects.select_related("supplier", "updated_by").get(
+            external_id=delivery_order_id
+        )
+        if self._is_excluded(delivery_order):
+            return None
+
+        invoice_items, part_packs = [], []
+        supply_deliveries = (
+            SupplyDelivery.objects.filter(
+                order=delivery_order,
+                status__in=[SupplyDeliveryStatusOptions.in_progress.value, SupplyDeliveryStatusOptions.completed.value],
+            )
+            .select_related(
+                "supplied_item__charge_item_definition__category__parent",
+                "supplied_item__product_knowledge",
+                "supplied_inventory_item__product__charge_item_definition__category__parent",
+                "supplied_inventory_item__product__product_knowledge",
+            )
+            .order_by("id")
+        )
+        # A transfer moves a batch held at the origin
+        returned = [
+            (
+                supply_delivery,
+                supply_delivery.supplied_item
+                or (
+                    supply_delivery.supplied_inventory_item.product if supply_delivery.supplied_inventory_item else None
+                ),
+            )
+            for supply_delivery in supply_deliveries
+        ]
+        packs_by_batch = batch_packs(
+            [product for _supply_delivery, product in returned if product and product.charge_item_definition],
+            delivery_order.supplier_id,
+        )
+        for supply_delivery, product in returned:
+            if not product or not product.charge_item_definition:
+                logger.warning(
+                    "Purchase return %s: item %s has no charge item definition, so it is left off the credit note",
+                    delivery_order_id,
+                    supply_delivery.external_id,
+                )
+                continue
+            pack_size, pack_price = packs_by_batch[product.id]
+            packs, loose = divmod(supply_delivery.supplied_item_quantity or Decimal(0), pack_size)
+            if loose:
+                part_packs.append(
+                    f"{product.product_knowledge.name} (batch {(product.batch or {}).get('lot_number', '-')}): "
+                    f"{plain_number(supply_delivery.supplied_item_quantity)} is not a whole number of packs "
+                    f"of {pack_size}"
+                )
+                continue
+            invoice_items.append(
+                InvoiceItem(
+                    product_data=batch_product_data(product),
+                    quantity=plain_number(packs),
+                    sale_price=str(pack_price),
+                    x_care_id=str(supply_delivery.external_id),
+                )
+            )
+
+        if part_packs:
+            raise ValidationError(
+                "Suppliers credit whole packs only. Change these to whole packs before approving: "
+                + "; ".join(part_packs)
+            )
+        if not invoice_items:
+            logger.info("No credit note items found for purchase return %s", delivery_order_id)
+            return None
+
+        returned_on = format_datetime_to_local_date(timezone.now(), "%d-%m-%Y")
+        data = AccountMoveApiRequest(
+            partner_data=supplier_partner_data(delivery_order.supplier),
+            invoice_items=invoice_items,
+            invoice_date=returned_on,
+            due_date=returned_on,
+            x_care_id=str(delivery_order.external_id),
+            bill_type=BillType.vendor,
+            is_refund=True,
+            reason="",
+            x_identifier=delivery_order.name,
+            x_created_by=delivery_order.updated_by.full_name if delivery_order.updated_by else None,
+        ).model_dump()
+        logger.info("Odoo Purchase Return Data: %s", data)
+
+        try:
+            response = OdooConnector.call_api("api/account/move", data)
+        except OdooConnectionError:
+            raise
+        except ValidationError as error:
+            # An approval Care rolled back, e.g. after a timeout, may already have created it
+            if "already exists" in str(error.detail):
+                logger.warning("Odoo already has the credit note for purchase return %s", delivery_order_id)
+                return None
+            raise
         return response["invoice"]["id"]
 
     def sync_delivery_order_reopen_to_odoo_api(self, delivery_order_id: str) -> None:
