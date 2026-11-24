@@ -245,6 +245,7 @@ class OdooInvoiceResource:
             is_refund=getattr(invoice, "is_refund", False),
             room_number=room_number,
             ip_bill_no=str(invoice.account.id) if invoice.account else None,
+            care_total=str(invoice.total_gross) if invoice.total_gross is not None else None,
         ).model_dump()
 
     def sync_invoice_return_to_odoo_api(self, invoice_id: str) -> int | None:
